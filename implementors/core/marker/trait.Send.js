@@ -1,0 +1,3 @@
+(function() {var implementors = {};
+implementors["interchange"] = [{"text":"impl Send for State","synthetic":true,"types":[]},{"text":"impl&lt;I:&nbsp;Interchange&gt; Send for Requester&lt;I&gt;","synthetic":false,"types":[]},{"text":"impl&lt;I:&nbsp;Interchange&gt; Send for Responder&lt;I&gt;","synthetic":false,"types":[]}];
+if (window.register_implementors) {window.register_implementors(implementors);} else {window.pending_implementors = implementors;}})()
