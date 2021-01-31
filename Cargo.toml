@@ -1,20 +1,16 @@
 [package]
 name = "interchange"
-version = "0.0.0-unreleased"
+version = "0.1.0"
 authors = ["Nicolas Stalder <n@stalder.io>"]
 edition = "2018"
+description = "Request/response mechanism for embedded development, using atomics"
+repository = "https://github.com/trussed-dev/interchange"
+readme = "README.md"
+license = "Apache-2.0 OR MIT"
+documentation = "https://docs.rs/interchange"
+keywords = ["cortex-m", "nxp", "lpc"]
+categories = ["development-tools", "embedded"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-[lib]
-path = "src/lib.rs"
-
-[[bin]]
-name = "main"
-path = "src/main.rs"
-
-# [[bin]]
-# name = "main2"
-# path = "src/main2.rs"
 
 [dependencies]

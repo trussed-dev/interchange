@@ -157,9 +157,9 @@ pub trait Interchange: Sized {
     type RESPONSE: Clone;
     /// This is the constructor for a `(Requester, Responder)` pair.
     ///
-    /// The first time it is called in the program, it constructs
-    /// singleton static resources, thereafter, `None` is returned.
-    fn claim(i: usize) -> Option<(Requester<Self>, Responder<Self>)>;
+    /// Returns singleton static instances until all that were allocated are
+    /// used up, thereafter, `None` is returned.
+    fn claim() -> Option<(Requester<Self>, Responder<Self>)>;
 
     #[doc(hidden)]
     unsafe fn rq_ref(&self) -> &Self::REQUEST;

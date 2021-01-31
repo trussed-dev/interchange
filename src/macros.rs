@@ -81,18 +81,14 @@ macro_rules! interchange {
             type REQUEST = $REQUEST;
             type RESPONSE = $RESPONSE;
 
-            // needs to be a global singleton
-            fn claim(i: usize) -> Option<($crate::Requester<Self>, $crate::Responder<Self>)> {
-                use core::sync::atomic::{AtomicBool, Ordering};
-                // static CLAIMED: [AtomicBool; $N] = [AtomicBool::new(false); $N];
-                static CLAIMED: [bool; $N] = [false; $N];//AtomicBool::new(false); $N];
-                if unsafe { core::mem::transmute::<bool, AtomicBool>(CLAIMED[i]) }
-                    .compare_exchange_weak(false, true, Ordering::AcqRel, Ordering::Acquire)
-                    .is_ok()
-                {
-                    Some(Self::split(i))
-                } else {
+            fn claim() -> Option<($crate::Requester<Self>, $crate::Responder<Self>)> {
+                use core::sync::atomic::{AtomicUsize, Ordering};
+                static LAST_CLAIMED: AtomicUsize = AtomicUsize::new(0);
+                let index = LAST_CLAIMED.fetch_add(1, Ordering::SeqCst);
+                if index > $N {
                     None
+                } else {
+                    Some(Self::split(index))
                 }
             }
 
