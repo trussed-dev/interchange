@@ -160,6 +160,16 @@ pub trait Interchange: Sized {
     /// Returns singleton static instances until all that were allocated are
     /// used up, thereafter, `None` is returned.
     fn claim() -> Option<(Requester<Self>, Responder<Self>)>;
+    /// Method purely for testing - do not use in production
+    ///
+    /// Rationale: In production, interchanges are supposed to be set up
+    /// as global singletons during intialization. In testing however, multiple
+    /// test cases are run serially; without this reset, such tests would need
+    /// to allocate an extremely large amount of clients.
+    ///
+    /// It does not work to put this behind a feature flag, as macro expansion
+    /// happens at call site and can't see the feature.
+    unsafe fn reset_claims();
 
     #[doc(hidden)]
     unsafe fn rq_ref(&self) -> &Self::REQUEST;

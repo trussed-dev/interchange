@@ -75,16 +75,31 @@ macro_rules! interchange {
                     )
                 }
             }
+
+            fn last_claimed() -> &'static core::sync::atomic::AtomicUsize {
+                use core::sync::atomic::{AtomicUsize, Ordering};
+                static LAST_CLAIMED: AtomicUsize = AtomicUsize::new(0);
+                &LAST_CLAIMED
+            }
         }
 
         impl $crate::Interchange for $Name {
             type REQUEST = $REQUEST;
             type RESPONSE = $RESPONSE;
 
+            unsafe fn reset_claims() {
+                // debug!("last claimed was {}",
+                //     Self::last_claimed().load( core::sync::atomic::Ordering::SeqCst));
+                Self::last_claimed().store(0, core::sync::atomic::Ordering::SeqCst);
+                // debug!("last claimed is {}",
+                //     Self::last_claimed().load( core::sync::atomic::Ordering::SeqCst));
+            }
+
             fn claim() -> Option<($crate::Requester<Self>, $crate::Responder<Self>)> {
                 use core::sync::atomic::{AtomicUsize, Ordering};
-                static LAST_CLAIMED: AtomicUsize = AtomicUsize::new(0);
-                let index = LAST_CLAIMED.fetch_add(1, Ordering::SeqCst);
+                let last_claimed = Self::last_claimed();
+                // static LAST_CLAIMED: AtomicUsize = AtomicUsize::new(0);
+                let index = last_claimed.fetch_add(1, Ordering::SeqCst);
                 if index > $N {
                     None
                 } else {
