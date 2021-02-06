@@ -405,6 +405,11 @@
 <span id="402">402</span>
 <span id="403">403</span>
 <span id="404">404</span>
+<span id="405">405</span>
+<span id="406">406</span>
+<span id="407">407</span>
+<span id="408">408</span>
+<span id="409">409</span>
 </pre><div class="example-wrap"><pre class="rust ">
 <span class="attribute">#![<span class="ident">no_std</span>]</span>
 <span class="doccomment">//! Implement a somewhat convenient and somewhat efficient way to perform RPC</span>
@@ -570,6 +575,11 @@
     <span class="kw">fn</span> <span class="ident">claim</span>() <span class="op">-</span><span class="op">&gt;</span> <span class="prelude-ty">Option</span><span class="op">&lt;</span>(<span class="ident">Requester</span><span class="op">&lt;</span><span class="self">Self</span><span class="op">&gt;</span>, <span class="ident">Responder</span><span class="op">&lt;</span><span class="self">Self</span><span class="op">&gt;</span>)<span class="op">&gt;</span>;
     <span class="attribute">#[<span class="ident">cfg</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;unsafe-claim-reset&quot;</span>)]</span>
     <span class="doccomment">/// Method purely for testing - do not use in production</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// Rationale: In production, interchanges are supposed to be set up</span>
+    <span class="doccomment">/// as global singletons during intialization. In testing however, multiple</span>
+    <span class="doccomment">/// test cases are run serially; without this reset, such tests would need</span>
+    <span class="doccomment">/// to allocate an extremely large amount of clients.</span>
     <span class="kw">unsafe</span> <span class="kw">fn</span> <span class="ident">reset_claims</span>();
 
     <span class="attribute">#[<span class="ident">doc</span>(<span class="ident">hidden</span>)]</span>
