@@ -404,6 +404,7 @@
 <span id="401">401</span>
 <span id="402">402</span>
 <span id="403">403</span>
+<span id="404">404</span>
 </pre><div class="example-wrap"><pre class="rust ">
 <span class="attribute">#![<span class="ident">no_std</span>]</span>
 <span class="doccomment">//! Implement a somewhat convenient and somewhat efficient way to perform RPC</span>
@@ -567,6 +568,7 @@
     <span class="doccomment">/// Returns singleton static instances until all that were allocated are</span>
     <span class="doccomment">/// used up, thereafter, `None` is returned.</span>
     <span class="kw">fn</span> <span class="ident">claim</span>() <span class="op">-</span><span class="op">&gt;</span> <span class="prelude-ty">Option</span><span class="op">&lt;</span>(<span class="ident">Requester</span><span class="op">&lt;</span><span class="self">Self</span><span class="op">&gt;</span>, <span class="ident">Responder</span><span class="op">&lt;</span><span class="self">Self</span><span class="op">&gt;</span>)<span class="op">&gt;</span>;
+    <span class="attribute">#[<span class="ident">cfg</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;unsafe-claim-reset&quot;</span>)]</span>
     <span class="doccomment">/// Method purely for testing - do not use in production</span>
     <span class="kw">unsafe</span> <span class="kw">fn</span> <span class="ident">reset_claims</span>();
 
