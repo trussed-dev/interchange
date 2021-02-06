@@ -152,7 +152,12 @@ impl From<u8> for State {
 
 
 /// Do NOT implement this yourself! Use the macro `interchange!`.
+///
+/// At compile time, the client capacity is set by using the appropriate call
+/// to the `interchange!` macro. The application can then repeatedly call `claim`
+/// to obtain these clients.
 pub trait Interchange: Sized {
+    const CLIENT_CAPACITY: usize;
     type REQUEST: Clone;
     type RESPONSE: Clone;
     /// This is the constructor for a `(Requester, Responder)` pair.
@@ -160,6 +165,10 @@ pub trait Interchange: Sized {
     /// Returns singleton static instances until all that were allocated are
     /// used up, thereafter, `None` is returned.
     fn claim() -> Option<(Requester<Self>, Responder<Self>)>;
+
+    /// Method for debugging: how many allocated clients have not been claimed.
+    fn available_clients() -> usize;
+
     /// Method purely for testing - do not use in production
     ///
     /// Rationale: In production, interchanges are supposed to be set up

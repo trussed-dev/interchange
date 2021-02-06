@@ -81,9 +81,12 @@ macro_rules! interchange {
                 static LAST_CLAIMED: AtomicUsize = AtomicUsize::new(0);
                 &LAST_CLAIMED
             }
+
         }
 
         impl $crate::Interchange for $Name {
+            const CLIENT_CAPACITY: usize = $N;
+
             type REQUEST = $REQUEST;
             type RESPONSE = $RESPONSE;
 
@@ -105,6 +108,10 @@ macro_rules! interchange {
                 } else {
                     Some(Self::split(index))
                 }
+            }
+
+            fn available_clients() -> usize {
+                Self::CLIENT_CAPACITY - Self::last_claimed().load(core::sync::atomic::Ordering::SeqCst)
             }
 
             unsafe fn rq(self) -> Self::REQUEST {
