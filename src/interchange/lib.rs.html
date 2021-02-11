@@ -1,6 +1,6 @@
 <!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Source of the Rust file `src/lib.rs`."><meta name="keywords" content="rust, rustlang, rust-lang"><title>lib.rs - source</title><link rel="stylesheet" type="text/css" href="../../normalize.css"><link rel="stylesheet" type="text/css" href="../../rustdoc.css" id="mainThemeStyle"><link rel="stylesheet" type="text/css" href="../../light.css"  id="themeStyle"><link rel="stylesheet" type="text/css" href="../../dark.css" disabled ><link rel="stylesheet" type="text/css" href="../../ayu.css" disabled ><script id="default-settings"></script><script src="../../storage.js"></script><noscript><link rel="stylesheet" href="../../noscript.css"></noscript><link rel="icon" type="image/svg+xml" href="../../favicon.svg">
 <link rel="alternate icon" type="image/png" href="../../favicon-16x16.png">
-<link rel="alternate icon" type="image/png" href="../../favicon-32x32.png"><style type="text/css">#crate-search{background-image:url("../../down-arrow.svg");}</style></head><body class="rustdoc source"><!--[if lte IE 8]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="sidebar"><div class="sidebar-menu">&#9776;</div><a href='../../interchange/index.html'><div class='logo-container rust-logo'><img src='../../rust-logo.png' alt='logo'></div></a></nav><div class="theme-picker"><button id="theme-picker" aria-label="Pick another theme!" aria-haspopup="menu"><img src="../../brush.svg" width="18" alt="Pick another theme!"></button><div id="theme-choices" role="menu"></div></div><script src="../../theme.js"></script><nav class="sub"><form class="search-form"><div class="search-container"><div><select id="crate-search"><option value="All crates">All crates</option></select><input class="search-input" name="search" disabled autocomplete="off" spellcheck="false" placeholder="Click or press ‘S’ to search, ‘?’ for more options…" type="search"></div><span class="help-button">?</span>
+<link rel="alternate icon" type="image/png" href="../../favicon-32x32.png"><style type="text/css">#crate-search{background-image:url("../../down-arrow.svg");}</style></head><body class="rustdoc source"><!--[if lte IE 8]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="sidebar"><div class="sidebar-menu">&#9776;</div><a href='../../interchange/index.html'><div class='logo-container rust-logo'><img src='../../rust-logo.png' alt='logo'></div></a></nav><div class="theme-picker"><button id="theme-picker" aria-label="Pick another theme!" aria-haspopup="menu"><img src="../../brush.svg" width="18" alt="Pick another theme!"></button><div id="theme-choices" role="menu"></div></div><script src="../../theme.js"></script><nav class="sub"><form class="search-form"><div class="search-container"><div><select id="crate-search"><option value="All crates">All crates</option></select><input class="search-input" name="search" disabled autocomplete="off" spellcheck="false" placeholder="Click or press ‘S’ to search, ‘?’ for more options…" type="search"></div><button type="button" class="help-button">?</button>
                 <a id="settings-menu" href="../../settings.html"><img src="../../wheel.svg" width="18" alt="Change settings"></a></div></form></nav><section id="main" class="content"><pre class="line-numbers"><span id="1">  1</span>
 <span id="2">  2</span>
 <span id="3">  3</span>
@@ -412,6 +412,15 @@
 <span id="409">409</span>
 <span id="410">410</span>
 <span id="411">411</span>
+<span id="412">412</span>
+<span id="413">413</span>
+<span id="414">414</span>
+<span id="415">415</span>
+<span id="416">416</span>
+<span id="417">417</span>
+<span id="418">418</span>
+<span id="419">419</span>
+<span id="420">420</span>
 </pre><div class="example-wrap"><pre class="rust ">
 <span class="attribute">#![<span class="ident">no_std</span>]</span>
 <span class="doccomment">//! Implement a somewhat convenient and somewhat efficient way to perform RPC</span>
@@ -567,7 +576,12 @@
 
 
 <span class="doccomment">/// Do NOT implement this yourself! Use the macro `interchange!`.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// At compile time, the client capacity is set by using the appropriate call</span>
+<span class="doccomment">/// to the `interchange!` macro. The application can then repeatedly call `claim`</span>
+<span class="doccomment">/// to obtain these clients.</span>
 <span class="kw">pub</span> <span class="kw">trait</span> <span class="ident">Interchange</span>: <span class="ident">Sized</span> {
+    <span class="kw">const</span> <span class="ident">CLIENT_CAPACITY</span>: <span class="ident">usize</span>;
     <span class="kw">type</span> <span class="ident">REQUEST</span>: <span class="ident">Clone</span>;
     <span class="kw">type</span> <span class="ident">RESPONSE</span>: <span class="ident">Clone</span>;
     <span class="doccomment">/// This is the constructor for a `(Requester, Responder)` pair.</span>
@@ -575,6 +589,10 @@
     <span class="doccomment">/// Returns singleton static instances until all that were allocated are</span>
     <span class="doccomment">/// used up, thereafter, `None` is returned.</span>
     <span class="kw">fn</span> <span class="ident">claim</span>() <span class="op">-</span><span class="op">&gt;</span> <span class="prelude-ty">Option</span><span class="op">&lt;</span>(<span class="ident">Requester</span><span class="op">&lt;</span><span class="self">Self</span><span class="op">&gt;</span>, <span class="ident">Responder</span><span class="op">&lt;</span><span class="self">Self</span><span class="op">&gt;</span>)<span class="op">&gt;</span>;
+
+    <span class="doccomment">/// Method for debugging: how many allocated clients have not been claimed.</span>
+    <span class="kw">fn</span> <span class="ident">unclaimed_clients</span>() <span class="op">-</span><span class="op">&gt;</span> <span class="ident">usize</span>;
+
     <span class="doccomment">/// Method purely for testing - do not use in production</span>
     <span class="doccomment">///</span>
     <span class="doccomment">/// Rationale: In production, interchanges are supposed to be set up</span>
