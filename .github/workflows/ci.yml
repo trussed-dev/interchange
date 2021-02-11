@@ -8,6 +8,12 @@ jobs:
 
     steps:
     - uses: actions/checkout@master
+    - uses: actions-rs/toolchain@v1
+      name: Install Rust
+      with:
+        profile: minimal
+        toolchain: stable
+        override: true
     - name: Build
       run: cargo build --verbose
     - name: Run tests

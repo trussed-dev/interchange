@@ -167,7 +167,7 @@ pub trait Interchange: Sized {
     fn claim() -> Option<(Requester<Self>, Responder<Self>)>;
 
     /// Method for debugging: how many allocated clients have not been claimed.
-    fn available_clients() -> usize;
+    fn unclaimed_clients() -> usize;
 
     /// Method purely for testing - do not use in production
     ///

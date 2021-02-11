@@ -29,10 +29,10 @@
 #[macro_export]
 macro_rules! interchange {
     ($Name:ident: ($REQUEST:ty, $RESPONSE:ty)) => {
-        $crate::interchange!($Name: ($REQUEST, $RESPONSE, 1, [None]));
+        $crate::interchange!($Name: ($REQUEST, $RESPONSE, 1));
     };
 
-    ($Name:ident: ($REQUEST:ty, $RESPONSE:ty, $N:expr, $Nones:expr)) => {
+    ($Name:ident: ($REQUEST:ty, $RESPONSE:ty, $N:expr)) => {
 
         // TODO: figure out how to implement, e.g., Clone iff REQUEST
         // and RESPONSE are clone (do not introduce Clone, Debug, etc. trait bounds).
@@ -49,8 +49,10 @@ macro_rules! interchange {
                 use core::cell::UnsafeCell;
 
                 // TODO(nickray): This turns up in .data section, fix this.
-                // static mut INTERCHANGES: [Option<$Name>; $N] = [None; $N];
-                static mut INTERCHANGES: [Option<$Name>; $N] = $Nones;
+
+                // yay Rust 1.50
+                const NONE: Option<$Name> = None;
+                static mut INTERCHANGES: [Option<$Name>; $N] = [NONE; $N];
                 static mut STATES: [u8; $N] = [0u8; $N];
                 unsafe {
                     let mut cell: MaybeUninit<UnsafeCell<&'static mut Option<$Name>>> = MaybeUninit::uninit();
@@ -110,7 +112,7 @@ macro_rules! interchange {
                 }
             }
 
-            fn available_clients() -> usize {
+            fn unclaimed_clients() -> usize {
                 Self::CLIENT_CAPACITY - Self::last_claimed().load(core::sync::atomic::Ordering::SeqCst)
             }
 
