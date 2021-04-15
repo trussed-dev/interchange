@@ -1,3 +1,3 @@
 (function() {var implementors = {};
-implementors["interchange"] = [{"text":"impl Debug for State","synthetic":false,"types":[]}];
+implementors["interchange"] = [{"text":"impl <a class=\"trait\" href=\"https://doc.rust-lang.org/nightly/core/fmt/trait.Debug.html\" title=\"trait core::fmt::Debug\">Debug</a> for <a class=\"enum\" href=\"interchange/enum.State.html\" title=\"enum interchange::State\">State</a>","synthetic":false,"types":["interchange::State"]}];
 if (window.register_implementors) {window.register_implementors(implementors);} else {window.pending_implementors = implementors;}})()
