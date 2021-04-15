@@ -55,12 +55,17 @@ macro_rules! interchange {
                 static mut INTERCHANGES: [Option<$Name>; $N] = [NONE; $N];
                 static mut STATES: [u8; $N] = [0u8; $N];
                 unsafe {
-                    let mut cell: MaybeUninit<UnsafeCell<&'static mut Option<$Name>>> = MaybeUninit::uninit();
+                    // It's unnecessary to wrap interchange in Option<T> because of the state handling we are
+                    // already doing.  Since Option<T> must take atleast as much space as T, 
+                    // we transmute &mut Option<T> to &mut T.  There is another way to use MaybeUninit but it's not
+                    // yet stable.
+                    let underlying_data: &'static mut $Name = unsafe { core::mem::transmute::<_, _>(&mut INTERCHANGES[i]) };
 
                     // need to pipe everything through an core::cell::UnsafeCell to get past Rust's
                     // aliasing rules (aka the borrow checker) - note that Requester and Responder
                     // both get a &'static mut to the same underlying memory allocation.
-                    cell.as_mut_ptr().write(UnsafeCell::new(&mut INTERCHANGES[i]));
+                    let mut cell: MaybeUninit<UnsafeCell<&'static mut $Name>> = MaybeUninit::uninit();
+                    cell.as_mut_ptr().write(UnsafeCell::new(underlying_data));
 
                     let state_ref = unsafe { core::mem::transmute::<&u8, &AtomicU8>(&STATES[i]) };
 
@@ -170,12 +175,12 @@ macro_rules! interchange {
                 }
             }
 
-            fn from_rq(rq: Self::REQUEST) -> Self {
-                Self::Request(rq)
+            fn from_rq(rq: &Self::REQUEST) -> Self {
+                Self::Request(rq.clone())
             }
 
-            fn from_rp(rp: Self::RESPONSE) -> Self {
-                Self::Response(rp)
+            fn from_rp(rp: &Self::RESPONSE) -> Self {
+                Self::Response(rp.clone())
             }
 
         }

@@ -93,14 +93,14 @@ pub fn test_happy_path(
     assert!(rq.state() == State::Idle);
 
     let request = Request::This(1, 2);
-    assert!(rq.request(request).is_ok());
+    assert!(rq.request(&request).is_ok());
 
     let request = rp.take_request().unwrap();
     println!("rp got request: {:?}", &request);
 
     let response = Response::There(-1);
     assert!(!rp.is_canceled());
-    assert!(rp.respond(response).is_ok());
+    assert!(rp.respond(&response).is_ok());
 
     let response = rq.take_response().unwrap();
     println!("rq got response: {:?}", &response);
@@ -114,7 +114,7 @@ pub fn test_early_cancel(
     assert!(rq.state() == State::Idle);
 
     let request = Request::This(1, 2);
-    assert!(rq.request(request).is_ok());
+    assert!(rq.request(&request).is_ok());
 
     println!("responder could cancel: {:?}", &rq.cancel().unwrap().unwrap());
 
@@ -129,7 +129,7 @@ pub fn test_later_cancel(
     assert!(rq.state() == State::Idle);
 
     let request = Request::This(1, 2);
-    assert!(rq.request(request).is_ok());
+    assert!(rq.request(&request).is_ok());
 
     let request = rp.take_request().unwrap();
     println!("rp got request: {:?}", &request);
