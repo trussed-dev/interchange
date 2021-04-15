@@ -48,20 +48,20 @@
 //!
 //! // happy path: no cancelation
 //! let request = Request::This(1, 2);
-//! assert!(rq.request(request).is_ok());
+//! assert!(rq.request(&request).is_ok());
 //!
 //! let request = rp.take_request().unwrap();
 //! println!("rp got request: {:?}", &request);
 //!
 //! let response = Response::There(-1);
 //! assert!(!rp.is_canceled());
-//! assert!(rp.respond(response).is_ok());
+//! assert!(rp.respond(&response).is_ok());
 //!
 //! let response = rq.take_response().unwrap();
 //! println!("rq got response: {:?}", &response);
 //!
 //! // early cancelation path
-//! assert!(rq.request(request).is_ok());
+//! assert!(rq.request(&request).is_ok());
 //!
 //! let request =  rq.cancel().unwrap().unwrap();
 //! println!("responder could cancel: {:?}", &request);
@@ -70,12 +70,12 @@
 //! assert!(State::Idle == rq.state());
 //!
 //! // late cancelation
-//! assert!(rq.request(request).is_ok());
+//! assert!(rq.request(&request).is_ok());
 //! let request = rp.take_request().unwrap();
 //!
 //! println!("responder could cancel: {:?}", &rq.cancel().unwrap().is_none());
 //! assert!(rp.is_canceled());
-//! assert!(rp.respond(response).is_err());
+//! assert!(rp.respond(&response).is_err());
 //! assert!(rp.acknowledge_cancel().is_ok());
 //! assert!(State::Idle == rq.state());
 //!
@@ -189,9 +189,9 @@ pub trait Interchange: Sized {
     #[doc(hidden)]
     unsafe fn rp_mut(&mut self) -> &mut Self::RESPONSE;
     #[doc(hidden)]
-    fn from_rq(rq: Self::REQUEST) -> Self;
+    fn from_rq(rq: &Self::REQUEST) -> Self;
     #[doc(hidden)]
-    fn from_rp(rp: Self::RESPONSE) -> Self;
+    fn from_rp(rp: &Self::RESPONSE) -> Self;
     #[doc(hidden)]
     unsafe fn rq(self) -> Self::REQUEST;
     #[doc(hidden)]
@@ -209,7 +209,7 @@ pub trait Interchange: Sized {
 pub struct Requester<I: 'static + Interchange> {
     // todo: get rid of this publicity
     #[doc(hidden)]
-    pub interchange: &'static mut Option<I>,
+    pub interchange: &'static mut I,
     #[doc(hidden)]
     pub state: &'static AtomicU8,
 }
@@ -222,7 +222,7 @@ unsafe impl<I: Interchange> Send for Requester<I> {}
 /// In case there is a cancelation of the request, this must be acknowledged instead.
 pub struct Responder<I: 'static + Interchange> {
     #[doc(hidden)]
-    pub interchange: &'static mut Option<I>,
+    pub interchange: &'static mut I,
     #[doc(hidden)]
     pub state: &'static AtomicU8,
 }
@@ -244,13 +244,13 @@ impl<I: Interchange> Requester<I> {
     ///
     /// If the RPC state is `Idle`, this always succeeds, else calling
     /// is a logic error and the request is returned.
-    pub fn request(&mut self, request: I::REQUEST) -> Result<(), I::REQUEST> {
+    pub fn request(&mut self, request: &I::REQUEST) -> Result<(), ()> {
         if State::Idle == self.state.load(Ordering::Acquire) {
-            *self.interchange = Some(Interchange::from_rq(request));
+            *self.interchange = Interchange::from_rq(request);
             self.state.store(State::Requested as u8, Ordering::Release);
             Ok(())
         } else {
-            Err(request)
+            Err(())
         }
     }
 
@@ -271,11 +271,8 @@ impl<I: Interchange> Requester<I> {
             Ordering::SeqCst,
             Ordering::SeqCst,
         ).is_ok() {
-            if let Some(thing) = self.interchange.take() {
-                self.state.store(State::Idle as u8, Ordering::Release);
-                return Ok(Some(unsafe { thing.rq() } ));
-            }
-            unreachable!();
+            self.state.store(State::Idle as u8, Ordering::Release);
+            return Ok(Some(unsafe { self.interchange.rq_ref().clone() } ));
         }
 
         // we canceled after the responder took the request, but before they answered.
@@ -307,10 +304,7 @@ impl<I: Interchange> Requester<I> {
             Ordering::SeqCst,
             Ordering::SeqCst,
         ).is_ok() {
-            if let Some(thing) = self.interchange.take() {
-                return Some(unsafe { thing.rp() } );
-            }
-            unreachable!();
+            return Some(unsafe { self.interchange.rp_ref().clone() } );
         }
 
         None
@@ -333,10 +327,7 @@ impl<I: Interchange> Responder<I> {
             Ordering::SeqCst,
             Ordering::SeqCst,
         ).is_ok() {
-            if let Some(thing) = self.interchange.take() {
-                return Some(unsafe { thing.rq() } );
-            }
-            unreachable!();
+            return Some(unsafe { self.interchange.rq_ref().clone() } );
         }
 
         None
@@ -363,9 +354,9 @@ impl<I: Interchange> Responder<I> {
         }
     }
 
-    pub fn respond(&mut self, response: I::RESPONSE) -> Result<(), I::RESPONSE> {
+    pub fn respond(&mut self, response: &I::RESPONSE) -> Result<(), ()> {
         if State::Processing == self.state.load(Ordering::Acquire) {
-            *self.interchange = Some(I::from_rp(response));
+            *self.interchange = I::from_rp(response);
             if self.state.compare_exchange(
                 State::Processing as u8,
                 State::Responded as u8,
@@ -374,47 +365,13 @@ impl<I: Interchange> Responder<I> {
             ).is_ok() {
                 return Ok(());
             } else {
-                // requester canceled in the mean time
-                if let Some(thing) = self.interchange.take() {
-                    return Err(unsafe { thing.rp() } );
-                }
-                unreachable!();
+                return Err(());
             }
         }
 
         // logic error
-        Err(response)
+        Err(())
     }
 
 }
 
-// pub fn claim() -> Option<(Requester, Responder)> {
-//     static CLAIMED: AtomicBool = AtomicBool::new(false);
-//     if CLAIMED
-//         .compare_exchange_weak(false, true, Ordering::AcqRel, Ordering::Acquire)
-//         .is_ok()
-//     {
-//         static mut INTERCHANGE: Option<Interchange> = None;
-//         static STATE: AtomicU8 = AtomicU8::new(State::Idle as u8);
-
-//         use core::mem::MaybeUninit;
-//         use core::cell::UnsafeCell;
-//         unsafe {
-//             let mut cell: MaybeUninit<UnsafeCell<&'static mut Option<Interchange>>> = MaybeUninit::uninit();
-//             cell.as_mut_ptr().write(UnsafeCell::new(&mut INTERCHANGE));
-//             Some((
-//                 Requester {
-//                     interchange: *(*cell.as_mut_ptr()).get(),
-//                     state: &STATE,
-//                 },
-
-//                 Responder {
-//                     interchange: *(*cell.as_mut_ptr()).get(),
-//                     state: &STATE,
-//                 },
-//             ))
-//         }
-//     } else {
-//         None
-//     }
-// }
