@@ -40,44 +40,36 @@ macro_rules! interchange {
         pub enum $Name {
             Request($REQUEST),
             Response($RESPONSE),
+            None,
         }
 
         impl $Name {
             fn split(i: usize) -> ($crate::Requester<Self>, $crate::Responder<Self>) {
                 use core::sync::atomic::AtomicU8;
-                use core::mem::MaybeUninit;
                 use core::cell::UnsafeCell;
 
                 // TODO(nickray): This turns up in .data section, fix this.
 
-                // yay Rust 1.50
-                const NONE: Option<$Name> = None;
-                static mut INTERCHANGES: [Option<$Name>; $N] = [NONE; $N];
-                static mut STATES: [u8; $N] = [0u8; $N];
-                unsafe {
-                    // It's unnecessary to wrap interchange in Option<T> because of the state handling we are
-                    // already doing.  Since Option<T> must take atleast as much space as T, 
-                    // we transmute &mut Option<T> to &mut T.  There is another way to use MaybeUninit but it's not
-                    // yet stable.
-                    let underlying_data: &'static mut $Name = unsafe { core::mem::transmute::<_, _>(&mut INTERCHANGES[i]) };
+                const INTERCHANGE_NONE: $Name = $Name::None;
+                static mut INTERCHANGES: [$Name; $N] = [INTERCHANGE_NONE; $N];
+                const ATOMIC_ZERO: AtomicU8 = AtomicU8::new(0);
+                static mut STATES: [AtomicU8; $N] = [ATOMIC_ZERO; $N];
 
+                unsafe {
                     // need to pipe everything through an core::cell::UnsafeCell to get past Rust's
                     // aliasing rules (aka the borrow checker) - note that Requester and Responder
                     // both get a &'static mut to the same underlying memory allocation.
-                    let mut cell: MaybeUninit<UnsafeCell<&'static mut $Name>> = MaybeUninit::uninit();
-                    cell.as_mut_ptr().write(UnsafeCell::new(underlying_data));
-
-                    let state_ref = unsafe { core::mem::transmute::<&u8, &AtomicU8>(&STATES[i]) };
+                    let mut cell = UnsafeCell::<&'static mut $Name>::new(&mut INTERCHANGES[i]);
 
                     (
                         $crate::Requester {
-                            interchange: *(*cell.as_mut_ptr()).get(),
-                            state: state_ref,
+                            interchange: *cell.get(),
+                            state: &STATES[i],
                         },
 
                         $crate::Responder {
-                            interchange: *(*cell.as_mut_ptr()).get(),
-                            state: state_ref,
+                            interchange: *cell.get(),
+                            state: &STATES[i],
                         },
                     )
                 }
