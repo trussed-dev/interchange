@@ -183,6 +183,20 @@
 <span id="180">180</span>
 <span id="181">181</span>
 <span id="182">182</span>
+<span id="183">183</span>
+<span id="184">184</span>
+<span id="185">185</span>
+<span id="186">186</span>
+<span id="187">187</span>
+<span id="188">188</span>
+<span id="189">189</span>
+<span id="190">190</span>
+<span id="191">191</span>
+<span id="192">192</span>
+<span id="193">193</span>
+<span id="194">194</span>
+<span id="195">195</span>
+<span id="196">196</span>
 </pre><div class="example-wrap"><pre class="rust ">
 <span class="doccomment">/// Use this macro to generate a pair of RPC pipes for any pair</span>
 <span class="doccomment">/// of Request/Response enums you wish to implement.</span>
@@ -297,6 +311,20 @@
 
             <span class="kw">fn</span> <span class="ident">unclaimed_clients</span>() <span class="op">-</span><span class="op">&gt;</span> <span class="ident">usize</span> {
                 <span class="self">Self</span>::<span class="ident">CLIENT_CAPACITY</span> <span class="op">-</span> <span class="self">Self</span>::<span class="ident">last_claimed</span>().<span class="ident">load</span>(<span class="ident">core</span>::<span class="ident">sync</span>::<span class="ident">atomic</span>::<span class="ident">Ordering</span>::<span class="ident">SeqCst</span>)
+            }
+
+            <span class="kw">fn</span> <span class="ident">is_request_state</span>(<span class="kw-2">&amp;</span><span class="self">self</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="ident">bool</span> {
+                <span class="kw">match</span> <span class="self">self</span> {
+                    <span class="self">Self</span>::<span class="ident">Request</span>(<span class="kw">_</span>) <span class="op">=</span><span class="op">&gt;</span> <span class="bool-val">true</span>,
+                    <span class="kw">_</span> <span class="op">=</span><span class="op">&gt;</span> <span class="bool-val">false</span>,
+                }
+            }
+
+            <span class="kw">fn</span> <span class="ident">is_response_state</span>(<span class="kw-2">&amp;</span><span class="self">self</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="ident">bool</span> {
+                <span class="kw">match</span> <span class="self">self</span> {
+                    <span class="self">Self</span>::<span class="ident">Response</span>(<span class="kw">_</span>) <span class="op">=</span><span class="op">&gt;</span> <span class="bool-val">true</span>,
+                    <span class="kw">_</span> <span class="op">=</span><span class="op">&gt;</span> <span class="bool-val">false</span>,
+                }
             }
 
             <span class="kw">unsafe</span> <span class="kw">fn</span> <span class="ident">rq</span>(<span class="self">self</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="self">Self</span>::<span class="ident">REQUEST</span> {
