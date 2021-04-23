@@ -522,6 +522,9 @@
 <span id="519">519</span>
 <span id="520">520</span>
 <span id="521">521</span>
+<span id="522">522</span>
+<span id="523">523</span>
+<span id="524">524</span>
 </pre><div class="example-wrap"><pre class="rust ">
 <span class="attribute">#![<span class="ident">no_std</span>]</span>
 <span class="doccomment">//! Implement a somewhat convenient and somewhat efficient way to perform RPC</span>
@@ -651,6 +654,10 @@
 <span class="doccomment">//! the user is expected to only use the publicly documented API (the ideally private</span>
 <span class="doccomment">//! details are hidden from documentation).</span>
 
+<span class="attribute">#[<span class="ident">macro_use</span>]</span>
+<span class="kw">extern</span> <span class="kw">crate</span> <span class="ident">delog</span>;
+<span class="macro">generate_macros</span><span class="macro">!</span>();
+
 <span class="kw">use</span> <span class="ident">core</span>::<span class="ident">sync</span>::<span class="ident">atomic</span>::{<span class="ident">AtomicU8</span>, <span class="ident">Ordering</span>};
 
 <span class="kw">mod</span> <span class="ident">macros</span>;
@@ -704,7 +711,6 @@
         }
     }
 }
-
 
 <span class="doccomment">/// Do NOT implement this yourself! Use the macro `interchange!`.</span>
 <span class="doccomment">///</span>
