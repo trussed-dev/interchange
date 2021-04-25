@@ -525,10 +525,6 @@
 <span id="522">522</span>
 <span id="523">523</span>
 <span id="524">524</span>
-<span id="525">525</span>
-<span id="526">526</span>
-<span id="527">527</span>
-<span id="528">528</span>
 </pre><div class="example-wrap"><pre class="rust ">
 <span class="attribute">#![<span class="ident">no_std</span>]</span>
 <span class="doccomment">//! Implement a somewhat convenient and somewhat efficient way to perform RPC</span>
@@ -621,7 +617,7 @@
 <span class="doccomment">//! let request_mut = rq.request_mut().unwrap();</span>
 <span class="doccomment">//! *request_mut = Request::This(1, 2);</span>
 <span class="doccomment">//! assert!(rq.send_request().is_ok());</span>
-<span class="doccomment">//! let request = rp.take_request().unwrap().clone();</span>
+<span class="doccomment">//! let request = rp.take_request().unwrap();</span>
 <span class="doccomment">//! println!(&quot;rp got request: {:?}&quot;, &amp;request);</span>
 <span class="doccomment">//!</span>
 <span class="doccomment">//! // building into response buffer</span>
@@ -634,7 +630,7 @@
 <span class="doccomment">//! let response_mut = rp.response_mut().unwrap();</span>
 <span class="doccomment">//! *response_mut = Response::Here(3,2,1);</span>
 <span class="doccomment">//! assert!(rp.send_response().is_ok());</span>
-<span class="doccomment">//! let response = rq.take_response().unwrap().clone();</span>
+<span class="doccomment">//! let response = rq.take_response().unwrap();</span>
 <span class="doccomment">//! println!(&quot;rq got response: {:?}&quot;, &amp;response);</span>
 <span class="doccomment">//!</span>
 <span class="doccomment">//! ```</span>
@@ -657,10 +653,6 @@
 <span class="doccomment">//! library. We take a somewhat Pythonic &quot;we&#39;re all adults here&quot; approach, in that</span>
 <span class="doccomment">//! the user is expected to only use the publicly documented API (the ideally private</span>
 <span class="doccomment">//! details are hidden from documentation).</span>
-
-<span class="attribute">#[<span class="ident">macro_use</span>]</span>
-<span class="kw">extern</span> <span class="kw">crate</span> <span class="ident">delog</span>;
-<span class="macro">generate_macros</span><span class="macro">!</span>();
 
 <span class="kw">use</span> <span class="ident">core</span>::<span class="ident">sync</span>::<span class="ident">atomic</span>::{<span class="ident">AtomicU8</span>, <span class="ident">Ordering</span>};
 
