@@ -525,6 +525,10 @@
 <span id="522">522</span>
 <span id="523">523</span>
 <span id="524">524</span>
+<span id="525">525</span>
+<span id="526">526</span>
+<span id="527">527</span>
+<span id="528">528</span>
 </pre><div class="example-wrap"><pre class="rust ">
 <span class="attribute">#![<span class="ident">no_std</span>]</span>
 <span class="doccomment">//! Implement a somewhat convenient and somewhat efficient way to perform RPC</span>
@@ -713,6 +717,10 @@
 }
 
 <span class="doccomment">/// Do NOT implement this yourself! Use the macro `interchange!`.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// Also, DO NOT use the doc(hidden) methods, if the public API in Requester</span>
+<span class="doccomment">/// and Responder are not sufficient for your needs, this means the abstraction</span>
+<span class="doccomment">/// is not good enough, and must be fixed here, in `interchange`.</span>
 <span class="doccomment">///</span>
 <span class="doccomment">/// At compile time, the client capacity is set by using the appropriate call</span>
 <span class="doccomment">/// to the `interchange!` macro. The application can then repeatedly call `claim`</span>
