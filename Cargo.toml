@@ -11,6 +11,4 @@ documentation = "https://docs.rs/interchange"
 keywords = ["cortex-m", "nxp", "lpc"]
 categories = ["development-tools", "embedded"]
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]

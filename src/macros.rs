@@ -113,6 +113,20 @@ macro_rules! interchange {
                 Self::CLIENT_CAPACITY - Self::last_claimed().load(core::sync::atomic::Ordering::SeqCst)
             }
 
+            fn is_request_state(&self) -> bool {
+                match self {
+                    Self::Request(_) => true,
+                    _ => false,
+                }
+            }
+
+            fn is_response_state(&self) -> bool {
+                match self {
+                    Self::Response(_) => true,
+                    _ => false,
+                }
+            }
+
             unsafe fn rq(self) -> Self::REQUEST {
                 match self {
                     Self::Request(request) => {
