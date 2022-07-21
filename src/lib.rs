@@ -126,6 +126,7 @@
 //! the user is expected to only use the publicly documented API (the ideally private
 //! details are hidden from documentation).
 
+use core::cell::UnsafeCell;
 use core::sync::atomic::{AtomicU8, Ordering};
 
 mod macros;
@@ -246,7 +247,7 @@ pub trait Interchange: Sized {
 pub struct Requester<I: 'static + Interchange> {
     // todo: get rid of this publicity
     #[doc(hidden)]
-    pub interchange: &'static mut I,
+    pub interchange: &'static UnsafeCell<I>,
     #[doc(hidden)]
     pub state: &'static AtomicU8,
 }
@@ -259,7 +260,7 @@ unsafe impl<I: Interchange> Send for Requester<I> {}
 /// In case there is a cancelation of the request, this must be acknowledged instead.
 pub struct Responder<I: 'static + Interchange> {
     #[doc(hidden)]
-    pub interchange: &'static mut I,
+    pub interchange: &'static UnsafeCell<I>,
     #[doc(hidden)]
     pub state: &'static AtomicU8,
 }
@@ -267,15 +268,19 @@ pub struct Responder<I: 'static + Interchange> {
 unsafe impl<I: Interchange> Send for Responder<I> {}
 
 impl<I: Interchange> Requester<I> {
-
     #[inline]
     fn transition(&self, from: State, to: State) -> bool {
-        self.state.compare_exchange(
-            from as u8,
-            to as u8,
-            Ordering::SeqCst,
-            Ordering::SeqCst,
-        ).is_ok()
+        self.state
+            .compare_exchange(from as u8, to as u8, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok()
+    }
+
+    unsafe fn interchange(&self) -> &'static I {
+        &*self.interchange.get()
+    }
+
+    unsafe fn interchange_mut(&mut self) -> &'static mut I {
+        &mut *self.interchange.get()
     }
 
     #[inline]
@@ -298,7 +303,9 @@ impl<I: Interchange> Requester<I> {
     /// is a logic error and the request is returned.
     pub fn request(&mut self, request: &I::REQUEST) -> Result<(), ()> {
         if State::Idle == self.state.load(Ordering::Acquire) {
-            *self.interchange = Interchange::from_rq(request);
+            unsafe {
+                *self.interchange_mut() = Interchange::from_rq(request);
+            }
             self.state.store(State::Requested as u8, Ordering::Release);
             Ok(())
         } else {
@@ -315,11 +322,10 @@ impl<I: Interchange> Requester<I> {
     ///
     /// In other cases (`Idle` or `Reponsed`) there is nothing to cancel and we fail.
     pub fn cancel(&mut self) -> Result<Option<I::REQUEST>, ()> {
-
         // we canceled before the responder was even aware of the request.
         if self.transition(State::Requested, State::CancelingRequested) {
             self.state.store(State::Idle as u8, Ordering::Release);
-            return Ok(Some(unsafe { self.interchange.rq_ref().clone() } ));
+            return Ok(Some(unsafe { (*self.interchange()).rq_ref().clone() }));
         }
 
         // we canceled after the responder took the request, but before they answered.
@@ -342,7 +348,7 @@ impl<I: Interchange> Requester<I> {
     // it seems unnecessary to model this.
     pub fn response(&mut self) -> Option<&I::RESPONSE> {
         if self.transition(State::Responded, State::Responded) {
-            Some(unsafe { self.interchange.rp_ref() } )
+            Some(unsafe { (*self.interchange()).rp_ref() })
         } else {
             None
         }
@@ -357,12 +363,11 @@ impl<I: Interchange> Requester<I> {
     // it seems unnecessary to model this.
     pub fn take_response(&mut self) -> Option<I::RESPONSE> {
         if self.transition(State::Responded, State::Idle) {
-            Some(unsafe { self.interchange.rp_ref().clone() } )
+            Some(unsafe { (*self.interchange()).rp_ref().clone() })
         } else {
             None
         }
     }
-
 }
 
 impl<I: Interchange> Requester<I>
@@ -371,14 +376,16 @@ where
 {
     /// If the interchange is idle, may build request into the returned value.
     pub fn request_mut(&mut self) -> Option<&mut I::REQUEST> {
-        if self.transition(State::Idle, State::BuildingRequest) ||
-            self.transition(State::BuildingRequest, State::BuildingRequest) {
+        if self.transition(State::Idle, State::BuildingRequest)
+            || self.transition(State::BuildingRequest, State::BuildingRequest)
+        {
+            unsafe {
+                if !(*self.interchange()).is_request_state() {
+                    *self.interchange_mut() = I::from_rq(&I::REQUEST::default());
+                }
 
-            if !self.interchange.is_request_state() {
-                *self.interchange = I::from_rq(&I::REQUEST::default());
+                Some((*self.interchange_mut()).rq_mut())
             }
-
-            Some(unsafe { self.interchange.rq_mut() } )
         } else {
             None
         }
@@ -387,7 +394,9 @@ where
     /// Send a request that was already placed in the interchange using `request_mut`.
     pub fn send_request(&mut self) -> Result<(), ()> {
         if State::BuildingRequest == self.state.load(Ordering::Acquire) {
-            *self.interchange = I::from_rq(self.request_mut().unwrap());
+            unsafe {
+                *self.interchange_mut() = I::from_rq(self.request_mut().unwrap());
+            }
             if self.transition(State::BuildingRequest, State::Requested) {
                 Ok(())
             } else {
@@ -401,15 +410,19 @@ where
 }
 
 impl<I: Interchange> Responder<I> {
-
     #[inline]
     fn transition(&self, from: State, to: State) -> bool {
-        self.state.compare_exchange(
-            from as u8,
-            to as u8,
-            Ordering::SeqCst,
-            Ordering::SeqCst,
-        ).is_ok()
+        self.state
+            .compare_exchange(from as u8, to as u8, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok()
+    }
+
+    unsafe fn interchange(&self) -> &'static I {
+        &*self.interchange.get()
+    }
+
+    unsafe fn interchange_mut(&mut self) -> &'static mut I {
+        &mut *self.interchange.get()
     }
 
     #[inline]
@@ -429,7 +442,7 @@ impl<I: Interchange> Responder<I> {
     /// If you need copies, clone the request.
     pub fn request(&mut self) -> Option<&I::REQUEST> {
         if self.transition(State::Requested, State::Requested) {
-            Some(unsafe { self.interchange.rq_ref() } )
+            Some(unsafe { (*self.interchange()).rq_ref() })
         } else {
             None
         }
@@ -441,7 +454,7 @@ impl<I: Interchange> Responder<I> {
     /// If you need copies, clone the request.
     pub fn take_request(&mut self) -> Option<I::REQUEST> {
         if self.transition(State::Requested, State::BuildingResponse) {
-            Some(unsafe { self.interchange.rq_ref().clone() } )
+            Some(unsafe { (self.interchange()).rq_ref().clone() })
         } else {
             None
         }
@@ -456,12 +469,16 @@ impl<I: Interchange> Responder<I> {
     //
     // It is a logic error to call this method if there is no pending cancellation.
     pub fn acknowledge_cancel(&self) -> Result<(), ()> {
-        if self.state.compare_exchange(
-            State::Canceled as u8,
-            State::Idle as u8,
-            Ordering::SeqCst,
-            Ordering::SeqCst,
-        ).is_ok() {
+        if self
+            .state
+            .compare_exchange(
+                State::Canceled as u8,
+                State::Idle as u8,
+                Ordering::SeqCst,
+                Ordering::SeqCst,
+            )
+            .is_ok()
+        {
             Ok(())
         } else {
             Err(())
@@ -475,33 +492,34 @@ impl<I: Interchange> Responder<I> {
     ///
     pub fn respond(&mut self, response: &I::RESPONSE) -> Result<(), ()> {
         if State::BuildingResponse == self.state.load(Ordering::Acquire) {
-            *self.interchange = I::from_rp(response);
+            unsafe {
+                *self.interchange_mut() = I::from_rp(response);
+            }
             self.state.store(State::Responded as u8, Ordering::Release);
             Ok(())
         } else {
             Err(())
         }
     }
-
 }
 
 impl<I: Interchange> Responder<I>
 where
     I::RESPONSE: Default,
-
 {
-
     /// If there is a request waiting that no longer needs to
     /// be accessed, may build response into the returned value.
     pub fn response_mut(&mut self) -> Option<&mut I::RESPONSE> {
         if self.transition(State::Requested, State::BuildingResponse)
-            || self.transition(State::BuildingResponse, State::BuildingResponse) {
+            || self.transition(State::BuildingResponse, State::BuildingResponse)
+        {
+            unsafe {
+                if !(*self.interchange()).is_response_state() {
+                    *self.interchange_mut() = I::from_rp(&I::RESPONSE::default());
+                }
 
-            if !self.interchange.is_response_state() {
-                *self.interchange = I::from_rp(&I::RESPONSE::default());
+                Some((*self.interchange_mut()).rp_mut())
             }
-
-            Some(unsafe { self.interchange.rp_mut() } )
         } else {
             None
         }
@@ -510,7 +528,9 @@ where
     /// Send a response that was already placed in the interchange using `response_mut`.
     pub fn send_response(&mut self) -> Result<(), ()> {
         if State::BuildingResponse == self.state.load(Ordering::Acquire) {
-            *self.interchange = I::from_rp(self.response_mut().unwrap());
+            unsafe {
+                *self.interchange_mut() = I::from_rp(self.response_mut().unwrap());
+            }
             if self.transition(State::BuildingResponse, State::Responded) {
                 Ok(())
             } else {

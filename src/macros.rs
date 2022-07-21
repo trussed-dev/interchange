@@ -51,26 +51,21 @@ macro_rules! interchange {
                 // TODO(nickray): This turns up in .data section, fix this.
 
                 #[allow(clippy::declare_interior_mutable_const)]
-                const INTERCHANGE_NONE: $Name = $Name::None;
-                static mut INTERCHANGES: [$Name; $N] = [INTERCHANGE_NONE; $N];
+                const INTERCHANGE_NONE: UnsafeCell<$Name> = UnsafeCell::new($Name::None);
+                static mut INTERCHANGES: [UnsafeCell<$Name>; $N] = [INTERCHANGE_NONE; $N];
                 #[allow(clippy::declare_interior_mutable_const)]
                 const ATOMIC_ZERO: AtomicU8 = AtomicU8::new(0);
                 static mut STATES: [AtomicU8; $N] = [ATOMIC_ZERO; $N];
 
                 unsafe {
-                    // need to pipe everything through an core::cell::UnsafeCell to get past Rust's
-                    // aliasing rules (aka the borrow checker) - note that Requester and Responder
-                    // both get a &'static mut to the same underlying memory allocation.
-                    let mut cell = UnsafeCell::<&'static mut $Name>::new(&mut INTERCHANGES[i]);
-
                     (
                         $crate::Requester {
-                            interchange: *cell.get(),
+                            interchange: &INTERCHANGES[i],
                             state: &STATES[i],
                         },
 
                         $crate::Responder {
-                            interchange: *cell.get(),
+                            interchange: &INTERCHANGES[i],
                             state: &STATES[i],
                         },
                     )
@@ -195,4 +190,3 @@ macro_rules! interchange {
 
     }
 }
-
