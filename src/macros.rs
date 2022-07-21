@@ -50,8 +50,10 @@ macro_rules! interchange {
 
                 // TODO(nickray): This turns up in .data section, fix this.
 
+                #[allow(clippy::declare_interior_mutable_const)]
                 const INTERCHANGE_NONE: $Name = $Name::None;
                 static mut INTERCHANGES: [$Name; $N] = [INTERCHANGE_NONE; $N];
+                #[allow(clippy::declare_interior_mutable_const)]
                 const ATOMIC_ZERO: AtomicU8 = AtomicU8::new(0);
                 static mut STATES: [AtomicU8; $N] = [ATOMIC_ZERO; $N];
 
