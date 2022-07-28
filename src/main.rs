@@ -58,7 +58,7 @@ pub enum Response {
 }
 
 interchange::interchange! {
-    ExampleInterchange: (Request, Response)
+    ExampleInterchange: (Request, Response, 2)
 }
 
 // fn main() {
