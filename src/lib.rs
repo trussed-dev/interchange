@@ -1,4 +1,5 @@
-#![no_std]
+#![cfg_attr(not(test), no_std)]
+#![cfg_attr(docsrs, feature(doc_cfg))]
 //! Implement a somewhat convenient and somewhat efficient way to perform RPC
 //! in an embedded context.
 //!
@@ -7,12 +8,6 @@
 //!
 //! Requests may be canceled, which the responder should honour on a
 //! best-effort basis.
-//!
-//! For each pair of `Request` and `Response` types, the macro `interchange!`
-//! generates a type that implements the `Interchange` trait.
-//!
-//! The `Requester` and `Responder` types (to send/cancel requests, and to
-//! respond to such demands) are generic with only this one type parameter.
 //!
 //! ### Example use cases
 //! - USB device interrupt handler performs low-level protocol details, hands off
@@ -23,9 +18,20 @@
 //!   TrustZone for Cortex-M secure/non-secure boundaries.
 //! - Request to blink a few lights and reply on button press
 //!
+//!
+//! ### Approach
+//! It is assumed that all requests fit in a single `Request` enum, and that
+//! all responses fit in single `Response` enum. The macro `interchange!`
+//! allocates a static buffer in which either response or request fit, and
+//! handles synchronization.
+//!
+//! An alternative approach would be to use two heapless Queues of length one
+//! each for response and requests. The advantage of our construction is to
+//! have only one static memory region in use.
+//!
 //! ```
-//! # use interchange::Interchange as _;
-//! # use interchange::State;
+//! # #![cfg(not(loom))]
+//! # use interchange::{State, Interchange, interchange};
 //! #[derive(Clone, Debug, PartialEq)]
 //! pub enum Request {
 //!     This(u8, u32),
@@ -38,11 +44,10 @@
 //!     There(i16),
 //! }
 //!
-//! interchange::interchange! {
-//!     ExampleInterchange: (Request, Response)
-//! }
+//! static INTERCHANGE: Interchange<Request, Response, 1>
+//!      = interchange!(Request, Response);
 //!
-//! let (mut rq, mut rp) = ExampleInterchange::claim().unwrap();
+//! let (mut rq, mut rp) = INTERCHANGE.claim().unwrap();
 //!
 //! assert!(rq.state() == State::Idle);
 //!
@@ -86,10 +91,10 @@
 //!   }
 //! }
 //!
-//! let request_mut = rq.request_mut().unwrap();
-//! *request_mut = Request::This(1, 2);
+//! rq.with_request_mut(|r| *r = Request::This(1,2)).unwrap() ;
 //! assert!(rq.send_request().is_ok());
 //! let request = rp.take_request().unwrap();
+//! assert_eq!(request, Request::This(1, 2));
 //! println!("rp got request: {:?}", &request);
 //!
 //! // building into response buffer
@@ -99,41 +104,39 @@
 //!   }
 //! }
 //!
-//! let response_mut = rp.response_mut().unwrap();
-//! *response_mut = Response::Here(3,2,1);
+//! rp.with_response_mut(|r| *r = Response::Here(3,2,1)).unwrap();
 //! assert!(rp.send_response().is_ok());
 //! let response = rq.take_response().unwrap();
-//! println!("rq got response: {:?}", &response);
+//! assert_eq!(response, Response::Here(3,2,1));
 //!
 //! ```
-//!
-//! ### Approach
-//! It is assumed that all requests fit in a single `Request` enum, and that
-//! all responses fit in single `Response` enum. The macro `interchange!`
-//! allocates a static buffer in which either response or request fit, and
-//! handles synchronization.
-//!
-//! An alternative approach would be to use two heapless Queues of length one
-//! each for response and requests. The advantage of our construction is to
-//! have only one static memory region in use.
-//!
-//! ### Safety
-//! It is possible that this implementation is currently not sound. To be determined!
-//!
-//! Due to the macro construction, certain implementation details are more public
-//! than one would hope for: the macro needs to run in the code of users of this
-//! library. We take a somewhat Pythonic "we're all adults here" approach, in that
-//! the user is expected to only use the publicly documented API (the ideally private
-//! details are hidden from documentation).
 
-use core::cell::UnsafeCell;
-use core::sync::atomic::{AtomicU8, Ordering};
+use core::fmt::{self, Debug};
+use core::sync::atomic::Ordering;
 
-mod macros;
-// pub mod scratch;
+#[cfg(loom)]
+use loom::{
+    cell::UnsafeCell,
+    sync::atomic::{AtomicU8, AtomicUsize},
+};
+
+#[cfg(not(loom))]
+use core::{
+    cell::UnsafeCell,
+    sync::atomic::{AtomicU8, AtomicUsize},
+};
+
+#[derive(Clone, Copy)]
+pub struct Error;
+
+impl Debug for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("The interchange is busy, this operation could not be performed")
+    }
+}
 
 #[repr(u8)]
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 /// State of the RPC interchange
 pub enum State {
     /// The requester may send a new request.
@@ -181,93 +184,238 @@ impl From<u8> for State {
     }
 }
 
-/// Do NOT implement this yourself! Use the macro `interchange!`.
-///
-/// Also, DO NOT use the doc(hidden) methods, if the public API in Requester
-/// and Responder are not sufficient for your needs, this means the abstraction
-/// is not good enough, and must be fixed here, in `interchange`.
-///
-/// At compile time, the client capacity is set by using the appropriate call
-/// to the `interchange!` macro. The application can then repeatedly call `claim`
-/// to obtain these clients.
-pub trait Interchange: Sized {
-    const CLIENT_CAPACITY: usize;
-    type REQUEST: Clone;
-    type RESPONSE: Clone;
-    /// This is the constructor for a `(Requester, Responder)` pair.
-    ///
-    /// Returns singleton static instances until all that were allocated are
-    /// used up, thereafter, `None` is returned.
-    fn claim() -> Option<(Requester<Self>, Responder<Self>)>;
-
-    /// Method for debugging: how many allocated clients have not been claimed.
-    fn unclaimed_clients() -> usize;
-
-    /// Method purely for testing - do not use in production
-    ///
-    /// Rationale: In production, interchanges are supposed to be set up
-    /// as global singletons during intialization. In testing however, multiple
-    /// test cases are run serially; without this reset, such tests would need
-    /// to allocate an extremely large amount of clients.
-    ///
-    /// It does not work to put this behind a feature flag, as macro expansion
-    /// happens at call site and can't see the feature.
-    unsafe fn reset_claims();
-
-    #[doc(hidden)]
-    fn is_request_state(&self) -> bool;
-    #[doc(hidden)]
-    fn is_response_state(&self) -> bool;
-    #[doc(hidden)]
-    unsafe fn rq_ref(&self) -> &Self::REQUEST;
-    #[doc(hidden)]
-    unsafe fn rp_ref(&self) -> &Self::RESPONSE;
-    #[doc(hidden)]
-    unsafe fn rq_mut(&mut self) -> &mut Self::REQUEST;
-    #[doc(hidden)]
-    unsafe fn rp_mut(&mut self) -> &mut Self::RESPONSE;
-    #[doc(hidden)]
-    fn from_rq(rq: &Self::REQUEST) -> Self;
-    #[doc(hidden)]
-    fn from_rp(rp: &Self::RESPONSE) -> Self;
-    #[doc(hidden)]
-    unsafe fn rq(self) -> Self::REQUEST;
-    #[doc(hidden)]
-    unsafe fn rp(self) -> Self::RESPONSE;
+// the repr(u8) is necessary so MaybeUninit::zeroized.assume_init() is valid and corresponds to
+// None
+#[repr(u8)]
+enum Message<Q, A> {
+    None,
+    Request(Q),
+    Response(A),
 }
 
-/// Requesting end of the RPC interchange.
-///
-/// The owner of this end initiates RPC by sending a request.
-/// It must then either wait until the responder end responds, upon which
-/// it can send a new request again. It does so by periodically checking
-/// whether `take_response` is Some. Or it can attempt to cancel,
-/// which the responder may or may not honour. For details, see the
-/// `cancel` method.
-pub struct Requester<I: 'static + Interchange> {
-    // todo: get rid of this publicity
-    #[doc(hidden)]
-    pub interchange: &'static UnsafeCell<I>,
-    #[doc(hidden)]
-    pub state: &'static AtomicU8,
+impl<Q, A> Message<Q, A>
+where
+    Q: Clone,
+    A: Clone,
+{
+    fn is_request_state(&self) -> bool {
+        matches!(self, Self::Request(_))
+    }
+
+    fn is_response_state(&self) -> bool {
+        matches!(self, Self::Response(_))
+    }
+
+    #[allow(unused)]
+    unsafe fn rq(self) -> Q {
+        match self {
+            Self::Request(request) => request,
+            _ => unreachable!(),
+        }
+    }
+
+    unsafe fn rq_ref(&self) -> &Q {
+        match *self {
+            Self::Request(ref request) => request,
+            _ => unreachable!(),
+        }
+    }
+
+    unsafe fn rq_mut(&mut self) -> &mut Q {
+        match *self {
+            Self::Request(ref mut request) => request,
+            _ => unreachable!(),
+        }
+    }
+
+    #[allow(unused)]
+    unsafe fn rp(self) -> A {
+        match self {
+            Self::Response(response) => response,
+            _ => unreachable!(),
+        }
+    }
+
+    unsafe fn rp_ref(&self) -> &A {
+        match *self {
+            Self::Response(ref response) => response,
+            _ => unreachable!(),
+        }
+    }
+
+    unsafe fn rp_mut(&mut self) -> &mut A {
+        match *self {
+            Self::Response(ref mut response) => response,
+            _ => unreachable!(),
+        }
+    }
+
+    fn from_rq(rq: &Q) -> Self {
+        Self::Request(rq.clone())
+    }
+
+    fn from_rp(rp: &A) -> Self {
+        Self::Response(rp.clone())
+    }
 }
 
-unsafe impl<I: Interchange> Send for Requester<I> {}
-
-/// Processing end of the RPC interchange.
+/// Channel used for Request/Response mechanism.
 ///
-/// The owner of this end must eventually reply to any requests made to it.
-/// In case there is a cancelation of the request, this must be acknowledged instead.
-pub struct Responder<I: 'static + Interchange> {
-    #[doc(hidden)]
-    pub interchange: &'static UnsafeCell<I>,
-    #[doc(hidden)]
-    pub state: &'static AtomicU8,
+/// The Channel doesn't implement any mechanism to prevent it from beind [`split()`](Channel::split) twice.
+/// It is generally recommended to use [`Interchange`](Interchange) instead, which includes a
+/// safe API to "Claim" many channels
+///
+/// ```
+/// # #![cfg(not(loom))]
+/// # use interchange::{State, Channel};
+/// #[derive(Clone, Debug, PartialEq)]
+/// pub enum Request {
+///     This(u8, u32),
+///     That(i64),
+/// }
+///
+/// #[derive(Clone, Debug, PartialEq)]
+/// pub enum Response {
+///     Here(u8, u8, u8),
+///     There(i16),
+/// }
+///
+/// static CHANNEL: Channel<Request,Response> = Channel::new();
+///
+/// let (mut rq, mut rp) = unsafe {CHANNEL.split()};
+///
+/// assert!(rq.state() == State::Idle);
+///
+/// // happy path: no cancelation
+/// let request = Request::This(1, 2);
+/// assert!(rq.request(&request).is_ok());
+///
+/// let request = rp.take_request().unwrap();
+/// println!("rp got request: {:?}", &request);
+///
+/// let response = Response::There(-1);
+/// assert!(!rp.is_canceled());
+/// assert!(rp.respond(&response).is_ok());
+///
+/// let response = rq.take_response().unwrap();
+/// println!("rq got response: {:?}", &response);
+///
+/// // early cancelation path
+/// assert!(rq.request(&request).is_ok());
+///
+/// let request =  rq.cancel().unwrap().unwrap();
+/// println!("responder could cancel: {:?}", &request);
+///
+/// assert!(rp.take_request().is_none());
+/// assert!(State::Idle == rq.state());
+///
+/// // late cancelation
+/// assert!(rq.request(&request).is_ok());
+/// let request = rp.take_request().unwrap();
+///
+/// println!("responder could cancel: {:?}", &rq.cancel().unwrap().is_none());
+/// assert!(rp.is_canceled());
+/// assert!(rp.respond(&response).is_err());
+/// assert!(rp.acknowledge_cancel().is_ok());
+/// assert!(State::Idle == rq.state());
+///
+/// // building into request buffer
+/// impl Default for Request {
+///   fn default() -> Self {
+///     Request::That(0)
+///   }
+/// }
+///
+/// rq.with_request_mut(|r| *r = Request::This(1,2)).unwrap() ;
+/// assert!(rq.send_request().is_ok());
+/// let request = rp.take_request().unwrap();
+/// assert_eq!(request, Request::This(1, 2));
+/// println!("rp got request: {:?}", &request);
+///
+/// // building into response buffer
+/// impl Default for Response {
+///   fn default() -> Self {
+///     Response::There(1)
+///   }
+/// }
+///
+/// rp.with_response_mut(|r| *r = Response::Here(3,2,1)).unwrap();
+/// assert!(rp.send_response().is_ok());
+/// let response = rq.take_response().unwrap();
+/// assert_eq!(response, Response::Here(3,2,1));
+///
+/// ```
+pub struct Channel<Q, A> {
+    interchange: UnsafeCell<Message<Q, A>>,
+    states: AtomicU8,
 }
 
-unsafe impl<I: Interchange> Send for Responder<I> {}
+impl<Q, A> Channel<Q, A>
+where
+    Q: Clone,
+    A: Clone,
+{
+    // Loom's atomics are not const :/
+    #[cfg(not(loom))]
+    pub const fn new() -> Self {
+        Self {
+            interchange: UnsafeCell::new(Message::None),
+            states: AtomicU8::new(0),
+        }
+    }
 
-impl<I: Interchange> Requester<I> {
+    #[cfg(loom)]
+    pub fn new() -> Self {
+        Self {
+            interchange: UnsafeCell::new(Message::None),
+            states: AtomicU8::new(0),
+        }
+    }
+
+    /// Obtain both the requester and responder ends of the interchange
+    ///
+    /// # Safety
+    ///
+    /// The requester and responders returned can only be used if no other Requester or Responder
+    /// obtained from previous calls to `split` are use
+    pub unsafe fn split(&self) -> (Requester<'_, Q, A>, Responder<'_, Q, A>) {
+        (
+            Requester {
+                interchange: &self.interchange,
+                state: &self.states,
+            },
+            Responder {
+                interchange: &self.interchange,
+                state: &self.states,
+            },
+        )
+    }
+}
+
+impl<Q, A> Default for Channel<Q, A>
+where
+    Q: Clone,
+    A: Clone,
+{
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Requester end of a channel
+///
+/// For a `static` [`Channel`](Channel) or [`Interchange`](Interchange),
+/// the requester uses a `'static` lifetime parameter
+pub struct Requester<'i, Q, A> {
+    interchange: &'i UnsafeCell<Message<Q, A>>,
+    state: &'i AtomicU8,
+}
+
+impl<'i, Q, A> Requester<'i, Q, A>
+where
+    Q: Clone,
+    A: Clone,
+{
     #[inline]
     fn transition(&self, from: State, to: State) -> bool {
         self.state
@@ -275,12 +423,34 @@ impl<I: Interchange> Requester<I> {
             .is_ok()
     }
 
-    unsafe fn interchange(&self) -> &'static I {
-        &*self.interchange.get()
+    #[cfg(not(loom))]
+    unsafe fn interchange(&self) -> &Message<Q, A> {
+        &mut *self.interchange.get()
     }
 
-    unsafe fn interchange_mut(&mut self) -> &'static mut I {
+    #[cfg(not(loom))]
+    unsafe fn interchange_mut(&mut self) -> &mut Message<Q, A> {
         &mut *self.interchange.get()
+    }
+
+    #[cfg(not(loom))]
+    unsafe fn with_interchange<R>(&self, f: impl FnOnce(&Message<Q, A>) -> R) -> R {
+        f(&*self.interchange.get())
+    }
+
+    #[cfg(not(loom))]
+    unsafe fn with_interchange_mut<R>(&mut self, f: impl FnOnce(&mut Message<Q, A>) -> R) -> R {
+        f(&mut *self.interchange.get())
+    }
+
+    #[cfg(loom)]
+    unsafe fn with_interchange<R>(&self, f: impl FnOnce(&Message<Q, A>) -> R) -> R {
+        self.interchange.with(|i| f(&*i))
+    }
+
+    #[cfg(loom)]
+    unsafe fn with_interchange_mut<R>(&mut self, f: impl FnOnce(&mut Message<Q, A>) -> R) -> R {
+        self.interchange.with_mut(|i| f(&mut *i))
     }
 
     #[inline]
@@ -301,15 +471,15 @@ impl<I: Interchange> Requester<I> {
     ///
     /// If the RPC state is `Idle`, this always succeeds, else calling
     /// is a logic error and the request is returned.
-    pub fn request(&mut self, request: &I::REQUEST) -> Result<(), ()> {
+    pub fn request(&mut self, request: &Q) -> Result<(), Error> {
         if State::Idle == self.state.load(Ordering::Acquire) {
             unsafe {
-                *self.interchange_mut() = Interchange::from_rq(request);
+                self.with_interchange_mut(|i| *i = Message::from_rq(request));
             }
             self.state.store(State::Requested as u8, Ordering::Release);
             Ok(())
         } else {
-            Err(())
+            Err(Error)
         }
     }
 
@@ -321,11 +491,13 @@ impl<I: Interchange> Requester<I> {
     /// If the responder has taken the request (is processing), we succeed and return None.
     ///
     /// In other cases (`Idle` or `Reponsed`) there is nothing to cancel and we fail.
-    pub fn cancel(&mut self) -> Result<Option<I::REQUEST>, ()> {
+    pub fn cancel(&mut self) -> Result<Option<Q>, Error> {
         // we canceled before the responder was even aware of the request.
         if self.transition(State::Requested, State::CancelingRequested) {
             self.state.store(State::Idle as u8, Ordering::Release);
-            return Ok(Some(unsafe { (*self.interchange()).rq_ref().clone() }));
+            return Ok(Some(unsafe {
+                self.with_interchange(|i| i.rq_ref().clone())
+            }));
         }
 
         // we canceled after the responder took the request, but before they answered.
@@ -337,20 +509,31 @@ impl<I: Interchange> Requester<I> {
             return Ok(None);
         }
 
-        Err(())
+        Err(Error)
     }
 
-    /// Look for a response.
-    /// If the responder has sent a response, we return it.
+    /// If there is a response waiting, obtain a reference to it
     ///
     /// This may be called multiple times.
-    // It is a logic error to call this method if we're Idle or Canceled, but
-    // it seems unnecessary to model this.
-    pub fn response(&mut self) -> Option<&I::RESPONSE> {
+    // Safety: We cannot test this with loom efficiently, but given that `with_response` is tested,
+    // this is likely correct
+    #[cfg(not(loom))]
+    pub fn response(&self) -> Result<&A, Error> {
         if self.transition(State::Responded, State::Responded) {
-            Some(unsafe { (*self.interchange()).rp_ref() })
+            Ok(unsafe { self.interchange().rp_ref() })
         } else {
-            None
+            Err(Error)
+        }
+    }
+
+    /// If there is a request waiting, perform an operation with a reference to it
+    ///
+    /// This may be called multiple times.
+    pub fn with_response<R>(&self, f: impl FnOnce(&A) -> R) -> Result<R, Error> {
+        if self.transition(State::Responded, State::Responded) {
+            Ok(unsafe { self.with_interchange(|i| f(i.rp_ref())) })
+        } else {
+            Err(Error)
         }
     }
 
@@ -361,55 +544,92 @@ impl<I: Interchange> Requester<I> {
     /// If you need copies, clone the request.
     // It is a logic error to call this method if we're Idle or Canceled, but
     // it seems unnecessary to model this.
-    pub fn take_response(&mut self) -> Option<I::RESPONSE> {
+    pub fn take_response(&mut self) -> Option<A> {
         if self.transition(State::Responded, State::Idle) {
-            Some(unsafe { (*self.interchange()).rp_ref().clone() })
+            Some(unsafe { self.with_interchange(|i| i.rp_ref().clone()) })
         } else {
             None
         }
     }
 }
 
-impl<I: Interchange> Requester<I>
+impl<'i, Q, A> Requester<'i, Q, A>
 where
-    I::REQUEST: Default,
+    Q: Clone + Default,
+    A: Clone,
 {
-    /// If the interchange is idle, may build request into the returned value.
-    pub fn request_mut(&mut self) -> Option<&mut I::REQUEST> {
+    /// Initialize a request with its default values and mutates it with `f`
+    ///
+    /// This is usefull to build large structures in-place
+    pub fn with_request_mut<R>(&mut self, f: impl FnOnce(&mut Q) -> R) -> Result<R, Error> {
+        if self.transition(State::Idle, State::BuildingRequest)
+            || self.transition(State::BuildingRequest, State::BuildingRequest)
+        {
+            let res = unsafe {
+                self.with_interchange_mut(|i| {
+                    if !i.is_request_state() {
+                        *i = Message::from_rq(&Q::default());
+                    }
+                    f(i.rq_mut())
+                })
+            };
+            Ok(res)
+        } else {
+            Err(Error)
+        }
+    }
+
+    /// Initialize a request with its default values and and return a mutable reference to it
+    ///
+    /// This is usefull to build large structures in-place
+    // Safety: We cannot test this with loom efficiently, but given that `with_request_mut` is tested,
+    // this is likely correct
+    #[cfg(not(loom))]
+    pub fn request_mut(&mut self) -> Result<&mut Q, Error> {
         if self.transition(State::Idle, State::BuildingRequest)
             || self.transition(State::BuildingRequest, State::BuildingRequest)
         {
             unsafe {
-                if !(*self.interchange()).is_request_state() {
-                    *self.interchange_mut() = I::from_rq(&I::REQUEST::default());
-                }
-
-                Some((*self.interchange_mut()).rq_mut())
+                self.with_interchange_mut(|i| {
+                    if !i.is_request_state() {
+                        *i = Message::from_rq(&Q::default());
+                    }
+                })
             }
+            Ok(unsafe { self.interchange_mut().rq_mut() })
         } else {
-            None
+            Err(Error)
         }
     }
 
-    /// Send a request that was already placed in the interchange using `request_mut`.
-    pub fn send_request(&mut self) -> Result<(), ()> {
-        if State::BuildingRequest == self.state.load(Ordering::Acquire) {
-            unsafe {
-                *self.interchange_mut() = I::from_rq(self.request_mut().unwrap());
-            }
-            if self.transition(State::BuildingRequest, State::Requested) {
-                Ok(())
-            } else {
-                Err(())
-            }
+    /// Send a request that was already placed in the interchange using `request_mut` or
+    /// `with_request_mut`.
+    pub fn send_request(&mut self) -> Result<(), Error> {
+        if State::BuildingRequest == self.state.load(Ordering::Acquire)
+            && self.transition(State::BuildingRequest, State::Requested)
+        {
+            Ok(())
         } else {
             // logic error
-            Err(())
+            Err(Error)
         }
     }
 }
 
-impl<I: Interchange> Responder<I> {
+/// Responder end of a channel
+///
+/// For a `static` [`Channel`](Channel) or [`Interchange`](Interchange),
+/// the responder uses a `'static` lifetime parameter
+pub struct Responder<'i, Q, A> {
+    interchange: &'i UnsafeCell<Message<Q, A>>,
+    state: &'i AtomicU8,
+}
+
+impl<'i, Q, A> Responder<'i, Q, A>
+where
+    Q: Clone,
+    A: Clone,
+{
     #[inline]
     fn transition(&self, from: State, to: State) -> bool {
         self.state
@@ -417,12 +637,34 @@ impl<I: Interchange> Responder<I> {
             .is_ok()
     }
 
-    unsafe fn interchange(&self) -> &'static I {
-        &*self.interchange.get()
+    #[cfg(not(loom))]
+    unsafe fn interchange(&self) -> &Message<Q, A> {
+        &mut *self.interchange.get()
     }
 
-    unsafe fn interchange_mut(&mut self) -> &'static mut I {
+    #[cfg(not(loom))]
+    unsafe fn interchange_mut(&mut self) -> &mut Message<Q, A> {
         &mut *self.interchange.get()
+    }
+
+    #[cfg(not(loom))]
+    unsafe fn with_interchange<R>(&self, f: impl FnOnce(&Message<Q, A>) -> R) -> R {
+        f(&*self.interchange.get())
+    }
+
+    #[cfg(not(loom))]
+    unsafe fn with_interchange_mut<R>(&mut self, f: impl FnOnce(&mut Message<Q, A>) -> R) -> R {
+        f(&mut *self.interchange.get())
+    }
+
+    #[cfg(loom)]
+    unsafe fn with_interchange<R>(&self, f: impl FnOnce(&Message<Q, A>) -> R) -> R {
+        self.interchange.with(|i| f(&*i))
+    }
+
+    #[cfg(loom)]
+    unsafe fn with_interchange_mut<R>(&mut self, f: impl FnOnce(&mut Message<Q, A>) -> R) -> R {
+        self.interchange.with_mut(|i| f(&mut *i))
     }
 
     #[inline]
@@ -436,15 +678,29 @@ impl<I: Interchange> Responder<I> {
         State::from(self.state.load(Ordering::Acquire))
     }
 
-    /// If there is a request waiting, take a reference to it out
+    /// If there is a request waiting, perform an operation with a reference to it
     ///
     /// This may be called only once as it move the state to BuildingResponse.
-    /// If you need copies, clone the request.
-    pub fn request(&mut self) -> Option<&I::REQUEST> {
-        if self.transition(State::Requested, State::Requested) {
-            Some(unsafe { (*self.interchange()).rq_ref() })
+    /// If you need copies, use `take_request`
+    pub fn with_request<R>(&self, f: impl FnOnce(&Q) -> R) -> Result<R, Error> {
+        if self.transition(State::Requested, State::BuildingResponse) {
+            Ok(unsafe { self.with_interchange(|i| f(i.rq_ref())) })
         } else {
-            None
+            Err(Error)
+        }
+    }
+
+    /// If there is a request waiting, obtain a reference to it
+    ///
+    /// This may be called multiple times.
+    // Safety: We cannot test this with loom efficiently, but given that `with_request` is tested,
+    // this is likely correct
+    #[cfg(not(loom))]
+    pub fn request(&self) -> Result<&Q, Error> {
+        if self.transition(State::Requested, State::BuildingResponse) {
+            Ok(unsafe { self.interchange().rq_ref() })
+        } else {
+            Err(Error)
         }
     }
 
@@ -452,9 +708,9 @@ impl<I: Interchange> Responder<I> {
     ///
     /// This may be called only once as it move the state to BuildingResponse.
     /// If you need copies, clone the request.
-    pub fn take_request(&mut self) -> Option<I::REQUEST> {
+    pub fn take_request(&mut self) -> Option<Q> {
         if self.transition(State::Requested, State::BuildingResponse) {
-            Some(unsafe { (self.interchange()).rq_ref().clone() })
+            Some(unsafe { self.with_interchange(|i| i.rq_ref().clone()) })
         } else {
             None
         }
@@ -465,10 +721,10 @@ impl<I: Interchange> Responder<I> {
         self.state.load(Ordering::SeqCst) == State::Canceled as u8
     }
 
-    // Acknowledge a cancel, thereby setting Interchange to Idle state again.
+    // Acknowledge a cancel, thereby setting Channel to Idle state again.
     //
     // It is a logic error to call this method if there is no pending cancellation.
-    pub fn acknowledge_cancel(&self) -> Result<(), ()> {
+    pub fn acknowledge_cancel(&self) -> Result<(), Error> {
         if self
             .state
             .compare_exchange(
@@ -481,67 +737,234 @@ impl<I: Interchange> Responder<I> {
         {
             Ok(())
         } else {
-            Err(())
+            Err(Error)
         }
     }
 
     /// Respond to a request.
     ///
     /// If efficiency is a concern, or responses need multiple steps to
-    /// construct, use `response_mut` and `send_response.
+    /// construct, use `with_response_mut` or `response_mut` and `send_response`.
     ///
-    pub fn respond(&mut self, response: &I::RESPONSE) -> Result<(), ()> {
+    pub fn respond(&mut self, response: &A) -> Result<(), Error> {
         if State::BuildingResponse == self.state.load(Ordering::Acquire) {
             unsafe {
-                *self.interchange_mut() = I::from_rp(response);
+                self.with_interchange_mut(|i| *i = Message::from_rp(response));
             }
             self.state.store(State::Responded as u8, Ordering::Release);
             Ok(())
         } else {
-            Err(())
+            Err(Error)
         }
     }
 }
 
-impl<I: Interchange> Responder<I>
+impl<'i, Q, A> Responder<'i, Q, A>
 where
-    I::RESPONSE: Default,
+    Q: Clone,
+    A: Clone + Default,
 {
-    /// If there is a request waiting that no longer needs to
-    /// be accessed, may build response into the returned value.
-    pub fn response_mut(&mut self) -> Option<&mut I::RESPONSE> {
+    /// Initialize a response with its default values and mutates it with `f`
+    ///
+    /// This is usefull to build large structures in-place
+    pub fn with_response_mut<R>(&mut self, f: impl FnOnce(&mut A) -> R) -> Result<R, Error> {
+        if self.transition(State::Requested, State::BuildingResponse)
+            || self.transition(State::BuildingResponse, State::BuildingResponse)
+        {
+            let res = unsafe {
+                self.with_interchange_mut(|i| {
+                    if !i.is_response_state() {
+                        *i = Message::from_rp(&A::default());
+                    }
+                    f(i.rp_mut())
+                })
+            };
+            Ok(res)
+        } else {
+            Err(Error)
+        }
+    }
+
+    /// Initialize a response with its default values and and return a mutable reference to it
+    ///
+    /// This is usefull to build large structures in-place
+    // Safety: We cannot test this with loom efficiently, but given that `with_response_mut` is tested,
+    // this is likely correct
+    #[cfg(not(loom))]
+    pub fn response(&mut self) -> Result<&mut A, Error> {
         if self.transition(State::Requested, State::BuildingResponse)
             || self.transition(State::BuildingResponse, State::BuildingResponse)
         {
             unsafe {
-                if !(*self.interchange()).is_response_state() {
-                    *self.interchange_mut() = I::from_rp(&I::RESPONSE::default());
-                }
-
-                Some((*self.interchange_mut()).rp_mut())
+                self.with_interchange_mut(|i| {
+                    if !i.is_response_state() {
+                        *i = Message::from_rp(&A::default());
+                    }
+                })
             }
+            Ok(unsafe { self.interchange_mut().rp_mut() })
         } else {
-            None
+            Err(Error)
         }
     }
 
-    /// Send a response that was already placed in the interchange using `response_mut`.
-    pub fn send_response(&mut self) -> Result<(), ()> {
-        if State::BuildingResponse == self.state.load(Ordering::Acquire) {
-            unsafe {
-                *self.interchange_mut() = I::from_rp(self.response_mut().unwrap());
-            }
-            if self.transition(State::BuildingResponse, State::Responded) {
-                Ok(())
-            } else {
-                Err(())
-            }
+    /// Send a response that was already placed in the interchange using `response_mut` or
+    /// `with_response_mut`.
+    pub fn send_response(&mut self) -> Result<(), Error> {
+        if State::BuildingResponse == self.state.load(Ordering::Acquire)
+            && self.transition(State::BuildingResponse, State::Responded)
+        {
+            Ok(())
         } else {
             // logic error
-            Err(())
+            Err(Error)
         }
     }
 }
 
-unsafe impl<I: Interchange> Sync for Requester<I> {}
-unsafe impl<I: Interchange> Sync for Responder<I> {}
+unsafe impl<'i, Q, A> Send for Responder<'i, Q, A> {}
+unsafe impl<'i, Q, A> Send for Requester<'i, Q, A> {}
+unsafe impl<Q, A> Send for Channel<Q, A> {}
+unsafe impl<Q, A> Sync for Channel<Q, A> {}
+
+/// Set of `N` channels
+///
+/// Channels can be claimed with [`claim()`](Self::claim)
+///
+/// ```
+/// # #![cfg(not(loom))]
+/// # use interchange::*;
+/// # #[derive(Clone, Debug, PartialEq)]
+/// # pub enum Request {
+/// #     This(u8, u32),
+/// #     That(i64),
+/// # }
+/// #
+/// # #[derive(Clone, Debug, PartialEq)]
+/// # pub enum Response {
+/// #     Here(u8, u8, u8),
+/// #     There(i16),
+/// # }
+/// #
+/// let interchange: Interchange<_,_,10> = Interchange::new();
+///
+/// for i in 0..10 {
+///     let rq: Requester<'_, Request, Response>;
+///     let rp: Responder<'_, Request, Response>;
+///     (rq, rp) = interchange.claim().unwrap() ;
+/// }
+/// ```
+pub struct Interchange<Q, A, const N: usize> {
+    interchanges: [Channel<Q, A>; N],
+    last_claimed: AtomicUsize,
+}
+
+impl<Q, A, const N: usize> Interchange<Q, A, N>
+where
+    Q: Clone,
+    A: Clone,
+{
+    /// Create a new Interchange
+    ///
+    /// Due to limitations of current Rust, this method cannot be const. The
+    /// [`interchange`](crate::interchange) macro can be used instead.
+    pub fn new() -> Self {
+        Self {
+            interchanges: core::array::from_fn(|_| Default::default()),
+            last_claimed: AtomicUsize::new(0),
+        }
+    }
+
+    // FIXME: There are many ways to make the new() function const:
+    // - Something like [const-zero]: https://docs.rs/const-zero could be used with #[repr(C)] on Message so that 0 = Message::None
+    // - Inline const expressions: https://github.com/rust-lang/rust/issues/76001
+    #[cfg(not(loom))]
+    #[doc(hidden)]
+    pub const fn const_new(interchanges: [Channel<Q, A>; N]) -> Self {
+        Self {
+            interchanges,
+            last_claimed: AtomicUsize::new(0),
+        }
+    }
+
+    /// Resets the claims, so that an previously claimed interchange can be claimed again.
+    ///
+    /// This method should only be used in tests and is therefore beind the `reset-claims` feature flag.
+    ///
+    /// # Safety
+    ///
+    /// This function is safe to call if and only if all requesters and responders obtained by calls
+    /// to [claim()](Self::claim) have been dropped.
+    #[cfg(feature = "reset-claims")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "reset-claims")))]
+    pub unsafe fn reset_claims(&self) {
+        self.last_claimed
+            .store(0, core::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// Claim one of the channels of the interchange. Returns None if called more than `N` times.
+    pub fn claim(&self) -> Option<(Requester<Q, A>, Responder<Q, A>)> {
+        let index = self.last_claimed.fetch_add(1, Ordering::SeqCst);
+        if index >= N {
+            // FIXME: This technically unsound if many calls to claim() happen in parrallel,
+            // last_claimed can still overflow
+            self.last_claimed.fetch_sub(1, Ordering::SeqCst);
+            None
+        } else {
+            Some(unsafe { self.interchanges[index].split() })
+        }
+    }
+
+    /// Number of clients remaining to claim
+    pub fn unclaimed_clients(&self) -> usize {
+        N - self.last_claimed.load(core::sync::atomic::Ordering::SeqCst)
+    }
+}
+
+impl<Q, A, const N: usize> Default for Interchange<Q, A, N>
+where
+    Q: Clone,
+    A: Clone,
+{
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Create a [Interchange](Interchange) in a `const` context
+///
+/// ```
+/// # #![cfg(not(loom))]
+/// # use interchange::*;
+/// # #[derive(Clone, Debug, PartialEq)]
+/// # pub enum Request {
+/// #     This(u8, u32),
+/// #     That(i64),
+/// # }
+/// #
+/// # #[derive(Clone, Debug, PartialEq)]
+/// # pub enum Response {
+/// #     Here(u8, u8, u8),
+/// #     There(i16),
+/// # }
+/// #
+/// static INTERCHANGE: Interchange<Request, Response, 10>
+///      = interchange!(Request, Response, 10);
+///
+/// for i in 0..10 {
+///     let rq: Requester<'static, Request, Response>;
+///     let rp: Responder<'static, Request, Response>;
+///     (rq, rp) = INTERCHANGE.claim().unwrap() ;
+/// }
+/// ```
+#[macro_export]
+macro_rules! interchange {
+    ($REQUEST:ty, $RESPONSE:ty) => {
+        $crate::interchange!($REQUEST, $RESPONSE, 1);
+    };
+    ($REQUEST:ty, $RESPONSE:ty, $N:expr) => {{
+        #[allow(clippy::declare_interior_mutable_const)]
+        const CHANNEL_NEW: $crate::Channel<$REQUEST, $RESPONSE> = $crate::Channel::new();
+        Interchange::const_new([CHANNEL_NEW; $N])
+    }};
+}
