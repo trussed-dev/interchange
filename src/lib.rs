@@ -347,7 +347,7 @@ where
 /// ```
 pub struct Channel<Q, A> {
     interchange: UnsafeCell<Message<Q, A>>,
-    states: AtomicU8,
+    state: AtomicU8,
 }
 
 impl<Q, A> Channel<Q, A>
@@ -360,7 +360,7 @@ where
     pub const fn new() -> Self {
         Self {
             interchange: UnsafeCell::new(Message::None),
-            states: AtomicU8::new(0),
+            state: AtomicU8::new(0),
         }
     }
 
@@ -368,7 +368,7 @@ where
     pub fn new() -> Self {
         Self {
             interchange: UnsafeCell::new(Message::None),
-            states: AtomicU8::new(0),
+            state: AtomicU8::new(0),
         }
     }
 
@@ -379,16 +379,7 @@ where
     /// The requester and responders returned can only be used if no other Requester or Responder
     /// obtained from previous calls to `split` are use
     pub unsafe fn split(&self) -> (Requester<'_, Q, A>, Responder<'_, Q, A>) {
-        (
-            Requester {
-                interchange: &self.interchange,
-                state: &self.states,
-            },
-            Responder {
-                interchange: &self.interchange,
-                state: &self.states,
-            },
-        )
+        (Requester { channel: self }, Responder { channel: self })
     }
 }
 
@@ -407,8 +398,7 @@ where
 /// For a `static` [`Channel`](Channel) or [`Interchange`](Interchange),
 /// the requester uses a `'static` lifetime parameter
 pub struct Requester<'i, Q, A> {
-    interchange: &'i UnsafeCell<Message<Q, A>>,
-    state: &'i AtomicU8,
+    channel: &'i Channel<Q, A>,
 }
 
 impl<'i, Q, A> Requester<'i, Q, A>
@@ -418,39 +408,40 @@ where
 {
     #[inline]
     fn transition(&self, from: State, to: State) -> bool {
-        self.state
+        self.channel
+            .state
             .compare_exchange(from as u8, to as u8, Ordering::SeqCst, Ordering::SeqCst)
             .is_ok()
     }
 
     #[cfg(not(loom))]
     unsafe fn interchange(&self) -> &Message<Q, A> {
-        &mut *self.interchange.get()
+        &mut *self.channel.interchange.get()
     }
 
     #[cfg(not(loom))]
     unsafe fn interchange_mut(&mut self) -> &mut Message<Q, A> {
-        &mut *self.interchange.get()
+        &mut *self.channel.interchange.get()
     }
 
     #[cfg(not(loom))]
     unsafe fn with_interchange<R>(&self, f: impl FnOnce(&Message<Q, A>) -> R) -> R {
-        f(&*self.interchange.get())
+        f(&*self.channel.interchange.get())
     }
 
     #[cfg(not(loom))]
     unsafe fn with_interchange_mut<R>(&mut self, f: impl FnOnce(&mut Message<Q, A>) -> R) -> R {
-        f(&mut *self.interchange.get())
+        f(&mut *self.channel.interchange.get())
     }
 
     #[cfg(loom)]
     unsafe fn with_interchange<R>(&self, f: impl FnOnce(&Message<Q, A>) -> R) -> R {
-        self.interchange.with(|i| f(&*i))
+        self.channel.interchange.with(|i| f(&*i))
     }
 
     #[cfg(loom)]
     unsafe fn with_interchange_mut<R>(&mut self, f: impl FnOnce(&mut Message<Q, A>) -> R) -> R {
-        self.interchange.with_mut(|i| f(&mut *i))
+        self.channel.interchange.with_mut(|i| f(&mut *i))
     }
 
     #[inline]
@@ -461,7 +452,7 @@ where
     /// The responder may change this state between calls,
     /// internally atomics ensure correctness.
     pub fn state(&self) -> State {
-        State::from(self.state.load(Ordering::Acquire))
+        State::from(self.channel.state.load(Ordering::Acquire))
     }
 
     /// Send a request to the responder.
@@ -472,11 +463,13 @@ where
     /// If the RPC state is `Idle`, this always succeeds, else calling
     /// is a logic error and the request is returned.
     pub fn request(&mut self, request: &Q) -> Result<(), Error> {
-        if State::Idle == self.state.load(Ordering::Acquire) {
+        if State::Idle == self.channel.state.load(Ordering::Acquire) {
             unsafe {
                 self.with_interchange_mut(|i| *i = Message::from_rq(request));
             }
-            self.state.store(State::Requested as u8, Ordering::Release);
+            self.channel
+                .state
+                .store(State::Requested as u8, Ordering::Release);
             Ok(())
         } else {
             Err(Error)
@@ -494,7 +487,9 @@ where
     pub fn cancel(&mut self) -> Result<Option<Q>, Error> {
         // we canceled before the responder was even aware of the request.
         if self.transition(State::Requested, State::CancelingRequested) {
-            self.state.store(State::Idle as u8, Ordering::Release);
+            self.channel
+                .state
+                .store(State::Idle as u8, Ordering::Release);
             return Ok(Some(unsafe {
                 self.with_interchange(|i| i.rq_ref().clone())
             }));
@@ -505,7 +500,9 @@ where
             // this may not yet be None in case the responder switched state to
             // BuildingResponse but did not take out the request yet.
             // assert!(self.interchange.is_none());
-            self.state.store(State::Canceled as u8, Ordering::Release);
+            self.channel
+                .state
+                .store(State::Canceled as u8, Ordering::Release);
             return Ok(None);
         }
 
@@ -605,7 +602,7 @@ where
     /// Send a request that was already placed in the interchange using `request_mut` or
     /// `with_request_mut`.
     pub fn send_request(&mut self) -> Result<(), Error> {
-        if State::BuildingRequest == self.state.load(Ordering::Acquire)
+        if State::BuildingRequest == self.channel.state.load(Ordering::Acquire)
             && self.transition(State::BuildingRequest, State::Requested)
         {
             Ok(())
@@ -621,8 +618,7 @@ where
 /// For a `static` [`Channel`](Channel) or [`Interchange`](Interchange),
 /// the responder uses a `'static` lifetime parameter
 pub struct Responder<'i, Q, A> {
-    interchange: &'i UnsafeCell<Message<Q, A>>,
-    state: &'i AtomicU8,
+    channel: &'i Channel<Q, A>,
 }
 
 impl<'i, Q, A> Responder<'i, Q, A>
@@ -632,39 +628,40 @@ where
 {
     #[inline]
     fn transition(&self, from: State, to: State) -> bool {
-        self.state
+        self.channel
+            .state
             .compare_exchange(from as u8, to as u8, Ordering::SeqCst, Ordering::SeqCst)
             .is_ok()
     }
 
     #[cfg(not(loom))]
     unsafe fn interchange(&self) -> &Message<Q, A> {
-        &mut *self.interchange.get()
+        &mut *self.channel.interchange.get()
     }
 
     #[cfg(not(loom))]
     unsafe fn interchange_mut(&mut self) -> &mut Message<Q, A> {
-        &mut *self.interchange.get()
+        &mut *self.channel.interchange.get()
     }
 
     #[cfg(not(loom))]
     unsafe fn with_interchange<R>(&self, f: impl FnOnce(&Message<Q, A>) -> R) -> R {
-        f(&*self.interchange.get())
+        f(&*self.channel.interchange.get())
     }
 
     #[cfg(not(loom))]
     unsafe fn with_interchange_mut<R>(&mut self, f: impl FnOnce(&mut Message<Q, A>) -> R) -> R {
-        f(&mut *self.interchange.get())
+        f(&mut *self.channel.interchange.get())
     }
 
     #[cfg(loom)]
     unsafe fn with_interchange<R>(&self, f: impl FnOnce(&Message<Q, A>) -> R) -> R {
-        self.interchange.with(|i| f(&*i))
+        self.channel.interchange.with(|i| f(&*i))
     }
 
     #[cfg(loom)]
     unsafe fn with_interchange_mut<R>(&mut self, f: impl FnOnce(&mut Message<Q, A>) -> R) -> R {
-        self.interchange.with_mut(|i| f(&mut *i))
+        self.channel.interchange.with_mut(|i| f(&mut *i))
     }
 
     #[inline]
@@ -675,7 +672,7 @@ where
     /// The responder may change this state between calls,
     /// internally atomics ensure correctness.
     pub fn state(&self) -> State {
-        State::from(self.state.load(Ordering::Acquire))
+        State::from(self.channel.state.load(Ordering::Acquire))
     }
 
     /// If there is a request waiting, perform an operation with a reference to it
@@ -718,7 +715,7 @@ where
 
     // Check if requester attempted to cancel
     pub fn is_canceled(&self) -> bool {
-        self.state.load(Ordering::SeqCst) == State::Canceled as u8
+        self.channel.state.load(Ordering::SeqCst) == State::Canceled as u8
     }
 
     // Acknowledge a cancel, thereby setting Channel to Idle state again.
@@ -726,6 +723,7 @@ where
     // It is a logic error to call this method if there is no pending cancellation.
     pub fn acknowledge_cancel(&self) -> Result<(), Error> {
         if self
+            .channel
             .state
             .compare_exchange(
                 State::Canceled as u8,
@@ -747,11 +745,13 @@ where
     /// construct, use `with_response_mut` or `response_mut` and `send_response`.
     ///
     pub fn respond(&mut self, response: &A) -> Result<(), Error> {
-        if State::BuildingResponse == self.state.load(Ordering::Acquire) {
+        if State::BuildingResponse == self.channel.state.load(Ordering::Acquire) {
             unsafe {
                 self.with_interchange_mut(|i| *i = Message::from_rp(response));
             }
-            self.state.store(State::Responded as u8, Ordering::Release);
+            self.channel
+                .state
+                .store(State::Responded as u8, Ordering::Release);
             Ok(())
         } else {
             Err(Error)
@@ -811,7 +811,7 @@ where
     /// Send a response that was already placed in the interchange using `response_mut` or
     /// `with_response_mut`.
     pub fn send_response(&mut self) -> Result<(), Error> {
-        if State::BuildingResponse == self.state.load(Ordering::Acquire)
+        if State::BuildingResponse == self.channel.state.load(Ordering::Acquire)
             && self.transition(State::BuildingResponse, State::Responded)
         {
             Ok(())
