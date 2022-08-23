@@ -1,4 +1,4 @@
-.PHONY= test, clippy docsrs
+.PHONY= test, clippy
 
 test:
 	cargo t
@@ -7,6 +7,3 @@ test:
 clippy:
 	cargo clippy --all-targets
 	RUSTFLAGS='--cfg loom' cargo clippy --all-targets
-
-docsrs:
-	RUSTDOCFLAGS='--cfg docsrs' cargo +nightly doc --all-features
