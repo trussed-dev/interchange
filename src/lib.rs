@@ -1,5 +1,4 @@
 #![cfg_attr(not(test), no_std)]
-#![cfg_attr(docsrs, feature(doc_cfg))]
 //! Implement a somewhat convenient and somewhat efficient way to perform RPC
 //! in an embedded context.
 //!
@@ -117,13 +116,13 @@ use core::sync::atomic::Ordering;
 #[cfg(loom)]
 use loom::{
     cell::UnsafeCell,
-    sync::atomic::{AtomicU8, AtomicUsize},
+    sync::atomic::{AtomicBool, AtomicU8, AtomicUsize},
 };
 
 #[cfg(not(loom))]
 use core::{
     cell::UnsafeCell,
-    sync::atomic::{AtomicU8, AtomicUsize},
+    sync::atomic::{AtomicBool, AtomicU8, AtomicUsize},
 };
 
 #[derive(Clone, Copy)]
@@ -282,7 +281,7 @@ where
 ///
 /// static CHANNEL: Channel<Request,Response> = Channel::new();
 ///
-/// let (mut rq, mut rp) = unsafe {CHANNEL.split()};
+/// let (mut rq, mut rp) = CHANNEL.split().unwrap();
 ///
 /// assert!(rq.state() == State::Idle);
 ///
@@ -348,6 +347,8 @@ where
 pub struct Channel<Q, A> {
     data: UnsafeCell<Message<Q, A>>,
     state: AtomicU8,
+    requester_claimed: AtomicBool,
+    responder_claimed: AtomicBool,
 }
 
 impl<Q, A> Channel<Q, A>
@@ -361,6 +362,8 @@ where
         Self {
             data: UnsafeCell::new(Message::None),
             state: AtomicU8::new(0),
+            requester_claimed: AtomicBool::new(false),
+            responder_claimed: AtomicBool::new(false),
         }
     }
 
@@ -369,17 +372,40 @@ where
         Self {
             data: UnsafeCell::new(Message::None),
             state: AtomicU8::new(0),
+            requester_claimed: AtomicBool::new(false),
+            responder_claimed: AtomicBool::new(false),
+        }
+    }
+
+    /// Obtain the requester end of the channel if it hasn't been taken yet
+    pub fn requester(&self) -> Option<Requester<'_, Q, A>> {
+        if self
+            .requester_claimed
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok()
+        {
+            Some(Requester { channel: self })
+        } else {
+            None
+        }
+    }
+
+    /// Obtain the responder end of the channel if it hasn't been taken yet
+    pub fn responder(&self) -> Option<Responder<'_, Q, A>> {
+        if self
+            .responder_claimed
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok()
+        {
+            Some(Responder { channel: self })
+        } else {
+            None
         }
     }
 
     /// Obtain both the requester and responder ends of the channel
-    ///
-    /// # Safety
-    ///
-    /// The requester and responders returned can only be used if no other Requester or Responder
-    /// obtained from previous calls to `split` are use
-    pub unsafe fn split(&self) -> (Requester<'_, Q, A>, Responder<'_, Q, A>) {
-        (Requester { channel: self }, Responder { channel: self })
+    pub fn split(&self) -> Option<(Requester<'_, Q, A>, Responder<'_, Q, A>)> {
+        Some((self.requester()?, self.responder()?))
     }
 }
 
@@ -399,6 +425,14 @@ where
 /// the requester uses a `'static` lifetime parameter
 pub struct Requester<'i, Q, A> {
     channel: &'i Channel<Q, A>,
+}
+
+impl<'i, Q, A> Drop for Requester<'i, Q, A> {
+    fn drop(&mut self) {
+        self.channel
+            .requester_claimed
+            .store(false, Ordering::Release);
+    }
 }
 
 impl<'i, Q, A> Requester<'i, Q, A>
@@ -617,6 +651,14 @@ where
 /// the responder uses a `'static` lifetime parameter
 pub struct Responder<'i, Q, A> {
     channel: &'i Channel<Q, A>,
+}
+
+impl<'i, Q, A> Drop for Responder<'i, Q, A> {
+    fn drop(&mut self) {
+        self.channel
+            .responder_claimed
+            .store(false, Ordering::Release);
+    }
 }
 
 impl<'i, Q, A> Responder<'i, Q, A>
@@ -885,32 +927,24 @@ where
         }
     }
 
-    /// Resets the claims, so that a previously claimed channel can be claimed again.
-    ///
-    /// This method should only be used in tests and is therefore beind the `reset-claims` feature flag.
-    ///
-    /// # Safety
-    ///
-    /// This function is safe to call if and only if all requesters and responders obtained by calls
-    /// to [claim()](Self::claim) have been dropped.
-    #[cfg(feature = "reset-claims")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "reset-claims")))]
-    pub unsafe fn reset_claims(&self) {
-        self.last_claimed
-            .store(0, core::sync::atomic::Ordering::SeqCst);
-    }
-
     /// Claim one of the channels of the interchange. Returns None if called more than `N` times.
     pub fn claim(&self) -> Option<(Requester<Q, A>, Responder<Q, A>)> {
         let index = self.last_claimed.fetch_add(1, Ordering::SeqCst);
-        if index >= N {
-            // FIXME: This technically unsound if many calls to claim() happen in parrallel,
-            // last_claimed can still overflow
-            self.last_claimed.fetch_sub(1, Ordering::SeqCst);
-            None
-        } else {
-            Some(unsafe { self.channels[index].split() })
+
+        for i in (index % N)..N {
+            let tmp = self.channels[i].split();
+            if tmp.is_some() {
+                return tmp;
+            }
         }
+
+        for i in 0..(index % N) {
+            let tmp = self.channels[i].split();
+            if tmp.is_some() {
+                return tmp;
+            }
+        }
+        None
     }
 
     /// Number of clients remaining to claim

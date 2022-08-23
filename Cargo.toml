@@ -13,11 +13,3 @@ categories = ["development-tools", "embedded"]
 
 [target.'cfg(loom)'.dependencies]
 loom = "0.5"
-
-[features]
-reset-claims = []
-
-[package.metadata.docs.rs]
-all-features = true
-# enable unstable features in the documentation
-rustdoc-args = ["--cfg", "docsrs"]

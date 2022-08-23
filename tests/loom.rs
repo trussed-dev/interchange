@@ -17,10 +17,11 @@ static BRANCHES_USED: [AtomicBool; 6] = [ATOMIC_BOOL_INIT; 6];
 #[test]
 fn loom_interchange() {
     loom::model(|| {
-        let interchange = Box::leak(Box::new(Channel::new()));
-        let dropper = unsafe { Box::from_raw(interchange as _) };
+        // thread closures must be 'static
+        let channel = Box::leak(Box::new(Channel::new()));
+        let dropper = unsafe { Box::from_raw(channel as _) };
 
-        let (rq, rp) = unsafe { interchange.split() };
+        let (rq, rp) = channel.split().unwrap();
         let handle1 = thread::spawn(move || requester_thread(rq));
         let handle2 = thread::spawn(move || responder_thread(rp));
         let res1 = handle1.join();
