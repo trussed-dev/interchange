@@ -965,6 +965,10 @@ where
 
 /// Create a [Interchange](Interchange) in a `const` context
 ///
+/// This is macro is a hack around limitations with `const` and generics in the rust compiler.
+/// [Interchange::new()](Interchange::new) will be made const when the necessary compiler features
+/// are stabilized.
+///
 /// ```
 /// # #![cfg(not(loom))]
 /// # use interchange::*;
