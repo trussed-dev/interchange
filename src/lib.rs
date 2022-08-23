@@ -346,7 +346,7 @@ where
 ///
 /// ```
 pub struct Channel<Q, A> {
-    interchange: UnsafeCell<Message<Q, A>>,
+    data: UnsafeCell<Message<Q, A>>,
     state: AtomicU8,
 }
 
@@ -359,7 +359,7 @@ where
     #[cfg(not(loom))]
     pub const fn new() -> Self {
         Self {
-            interchange: UnsafeCell::new(Message::None),
+            data: UnsafeCell::new(Message::None),
             state: AtomicU8::new(0),
         }
     }
@@ -367,12 +367,12 @@ where
     #[cfg(loom)]
     pub fn new() -> Self {
         Self {
-            interchange: UnsafeCell::new(Message::None),
+            data: UnsafeCell::new(Message::None),
             state: AtomicU8::new(0),
         }
     }
 
-    /// Obtain both the requester and responder ends of the interchange
+    /// Obtain both the requester and responder ends of the channel
     ///
     /// # Safety
     ///
@@ -415,37 +415,37 @@ where
     }
 
     #[cfg(not(loom))]
-    unsafe fn interchange(&self) -> &Message<Q, A> {
-        &mut *self.channel.interchange.get()
+    unsafe fn data(&self) -> &Message<Q, A> {
+        &mut *self.channel.data.get()
     }
 
     #[cfg(not(loom))]
-    unsafe fn interchange_mut(&mut self) -> &mut Message<Q, A> {
-        &mut *self.channel.interchange.get()
+    unsafe fn data_mut(&mut self) -> &mut Message<Q, A> {
+        &mut *self.channel.data.get()
     }
 
     #[cfg(not(loom))]
-    unsafe fn with_interchange<R>(&self, f: impl FnOnce(&Message<Q, A>) -> R) -> R {
-        f(&*self.channel.interchange.get())
+    unsafe fn with_data<R>(&self, f: impl FnOnce(&Message<Q, A>) -> R) -> R {
+        f(&*self.channel.data.get())
     }
 
     #[cfg(not(loom))]
-    unsafe fn with_interchange_mut<R>(&mut self, f: impl FnOnce(&mut Message<Q, A>) -> R) -> R {
-        f(&mut *self.channel.interchange.get())
+    unsafe fn with_data_mut<R>(&mut self, f: impl FnOnce(&mut Message<Q, A>) -> R) -> R {
+        f(&mut *self.channel.data.get())
     }
 
     #[cfg(loom)]
-    unsafe fn with_interchange<R>(&self, f: impl FnOnce(&Message<Q, A>) -> R) -> R {
-        self.channel.interchange.with(|i| f(&*i))
+    unsafe fn with_data<R>(&self, f: impl FnOnce(&Message<Q, A>) -> R) -> R {
+        self.channel.data.with(|i| f(&*i))
     }
 
     #[cfg(loom)]
-    unsafe fn with_interchange_mut<R>(&mut self, f: impl FnOnce(&mut Message<Q, A>) -> R) -> R {
-        self.channel.interchange.with_mut(|i| f(&mut *i))
+    unsafe fn with_data_mut<R>(&mut self, f: impl FnOnce(&mut Message<Q, A>) -> R) -> R {
+        self.channel.data.with_mut(|i| f(&mut *i))
     }
 
     #[inline]
-    /// Current state of the interchange.
+    /// Current state of the channel.
     ///
     /// Informational only!
     ///
@@ -465,7 +465,7 @@ where
     pub fn request(&mut self, request: &Q) -> Result<(), Error> {
         if State::Idle == self.channel.state.load(Ordering::Acquire) {
             unsafe {
-                self.with_interchange_mut(|i| *i = Message::from_rq(request));
+                self.with_data_mut(|i| *i = Message::from_rq(request));
             }
             self.channel
                 .state
@@ -490,16 +490,14 @@ where
             self.channel
                 .state
                 .store(State::Idle as u8, Ordering::Release);
-            return Ok(Some(unsafe {
-                self.with_interchange(|i| i.rq_ref().clone())
-            }));
+            return Ok(Some(unsafe { self.with_data(|i| i.rq_ref().clone()) }));
         }
 
         // we canceled after the responder took the request, but before they answered.
         if self.transition(State::BuildingResponse, State::CancelingRequested) {
             // this may not yet be None in case the responder switched state to
             // BuildingResponse but did not take out the request yet.
-            // assert!(self.interchange.is_none());
+            // assert!(self.data.is_none());
             self.channel
                 .state
                 .store(State::Canceled as u8, Ordering::Release);
@@ -517,7 +515,7 @@ where
     #[cfg(not(loom))]
     pub fn response(&self) -> Result<&A, Error> {
         if self.transition(State::Responded, State::Responded) {
-            Ok(unsafe { self.interchange().rp_ref() })
+            Ok(unsafe { self.data().rp_ref() })
         } else {
             Err(Error)
         }
@@ -528,7 +526,7 @@ where
     /// This may be called multiple times.
     pub fn with_response<R>(&self, f: impl FnOnce(&A) -> R) -> Result<R, Error> {
         if self.transition(State::Responded, State::Responded) {
-            Ok(unsafe { self.with_interchange(|i| f(i.rp_ref())) })
+            Ok(unsafe { self.with_data(|i| f(i.rp_ref())) })
         } else {
             Err(Error)
         }
@@ -543,7 +541,7 @@ where
     // it seems unnecessary to model this.
     pub fn take_response(&mut self) -> Option<A> {
         if self.transition(State::Responded, State::Idle) {
-            Some(unsafe { self.with_interchange(|i| i.rp_ref().clone()) })
+            Some(unsafe { self.with_data(|i| i.rp_ref().clone()) })
         } else {
             None
         }
@@ -563,7 +561,7 @@ where
             || self.transition(State::BuildingRequest, State::BuildingRequest)
         {
             let res = unsafe {
-                self.with_interchange_mut(|i| {
+                self.with_data_mut(|i| {
                     if !i.is_request_state() {
                         *i = Message::from_rq(&Q::default());
                     }
@@ -587,19 +585,19 @@ where
             || self.transition(State::BuildingRequest, State::BuildingRequest)
         {
             unsafe {
-                self.with_interchange_mut(|i| {
+                self.with_data_mut(|i| {
                     if !i.is_request_state() {
                         *i = Message::from_rq(&Q::default());
                     }
                 })
             }
-            Ok(unsafe { self.interchange_mut().rq_mut() })
+            Ok(unsafe { self.data_mut().rq_mut() })
         } else {
             Err(Error)
         }
     }
 
-    /// Send a request that was already placed in the interchange using `request_mut` or
+    /// Send a request that was already placed in the channel using `request_mut` or
     /// `with_request_mut`.
     pub fn send_request(&mut self) -> Result<(), Error> {
         if State::BuildingRequest == self.channel.state.load(Ordering::Acquire)
@@ -635,37 +633,37 @@ where
     }
 
     #[cfg(not(loom))]
-    unsafe fn interchange(&self) -> &Message<Q, A> {
-        &mut *self.channel.interchange.get()
+    unsafe fn data(&self) -> &Message<Q, A> {
+        &mut *self.channel.data.get()
     }
 
     #[cfg(not(loom))]
-    unsafe fn interchange_mut(&mut self) -> &mut Message<Q, A> {
-        &mut *self.channel.interchange.get()
+    unsafe fn data_mut(&mut self) -> &mut Message<Q, A> {
+        &mut *self.channel.data.get()
     }
 
     #[cfg(not(loom))]
-    unsafe fn with_interchange<R>(&self, f: impl FnOnce(&Message<Q, A>) -> R) -> R {
-        f(&*self.channel.interchange.get())
+    unsafe fn with_data<R>(&self, f: impl FnOnce(&Message<Q, A>) -> R) -> R {
+        f(&*self.channel.data.get())
     }
 
     #[cfg(not(loom))]
-    unsafe fn with_interchange_mut<R>(&mut self, f: impl FnOnce(&mut Message<Q, A>) -> R) -> R {
-        f(&mut *self.channel.interchange.get())
+    unsafe fn with_data_mut<R>(&mut self, f: impl FnOnce(&mut Message<Q, A>) -> R) -> R {
+        f(&mut *self.channel.data.get())
     }
 
     #[cfg(loom)]
-    unsafe fn with_interchange<R>(&self, f: impl FnOnce(&Message<Q, A>) -> R) -> R {
-        self.channel.interchange.with(|i| f(&*i))
+    unsafe fn with_data<R>(&self, f: impl FnOnce(&Message<Q, A>) -> R) -> R {
+        self.channel.data.with(|i| f(&*i))
     }
 
     #[cfg(loom)]
-    unsafe fn with_interchange_mut<R>(&mut self, f: impl FnOnce(&mut Message<Q, A>) -> R) -> R {
-        self.channel.interchange.with_mut(|i| f(&mut *i))
+    unsafe fn with_data_mut<R>(&mut self, f: impl FnOnce(&mut Message<Q, A>) -> R) -> R {
+        self.channel.data.with_mut(|i| f(&mut *i))
     }
 
     #[inline]
-    /// Current state of the interchange.
+    /// Current state of the channel.
     ///
     /// Informational only!
     ///
@@ -681,7 +679,7 @@ where
     /// If you need copies, use `take_request`
     pub fn with_request<R>(&self, f: impl FnOnce(&Q) -> R) -> Result<R, Error> {
         if self.transition(State::Requested, State::BuildingResponse) {
-            Ok(unsafe { self.with_interchange(|i| f(i.rq_ref())) })
+            Ok(unsafe { self.with_data(|i| f(i.rq_ref())) })
         } else {
             Err(Error)
         }
@@ -695,7 +693,7 @@ where
     #[cfg(not(loom))]
     pub fn request(&self) -> Result<&Q, Error> {
         if self.transition(State::Requested, State::BuildingResponse) {
-            Ok(unsafe { self.interchange().rq_ref() })
+            Ok(unsafe { self.data().rq_ref() })
         } else {
             Err(Error)
         }
@@ -707,7 +705,7 @@ where
     /// If you need copies, clone the request.
     pub fn take_request(&mut self) -> Option<Q> {
         if self.transition(State::Requested, State::BuildingResponse) {
-            Some(unsafe { self.with_interchange(|i| i.rq_ref().clone()) })
+            Some(unsafe { self.with_data(|i| i.rq_ref().clone()) })
         } else {
             None
         }
@@ -747,7 +745,7 @@ where
     pub fn respond(&mut self, response: &A) -> Result<(), Error> {
         if State::BuildingResponse == self.channel.state.load(Ordering::Acquire) {
             unsafe {
-                self.with_interchange_mut(|i| *i = Message::from_rp(response));
+                self.with_data_mut(|i| *i = Message::from_rp(response));
             }
             self.channel
                 .state
@@ -772,7 +770,7 @@ where
             || self.transition(State::BuildingResponse, State::BuildingResponse)
         {
             let res = unsafe {
-                self.with_interchange_mut(|i| {
+                self.with_data_mut(|i| {
                     if !i.is_response_state() {
                         *i = Message::from_rp(&A::default());
                     }
@@ -796,19 +794,19 @@ where
             || self.transition(State::BuildingResponse, State::BuildingResponse)
         {
             unsafe {
-                self.with_interchange_mut(|i| {
+                self.with_data_mut(|i| {
                     if !i.is_response_state() {
                         *i = Message::from_rp(&A::default());
                     }
                 })
             }
-            Ok(unsafe { self.interchange_mut().rp_mut() })
+            Ok(unsafe { self.data_mut().rp_mut() })
         } else {
             Err(Error)
         }
     }
 
-    /// Send a response that was already placed in the interchange using `response_mut` or
+    /// Send a response that was already placed in the channel using `response_mut` or
     /// `with_response_mut`.
     pub fn send_response(&mut self) -> Result<(), Error> {
         if State::BuildingResponse == self.channel.state.load(Ordering::Acquire)
@@ -855,7 +853,7 @@ unsafe impl<Q, A> Sync for Channel<Q, A> {}
 /// }
 /// ```
 pub struct Interchange<Q, A, const N: usize> {
-    interchanges: [Channel<Q, A>; N],
+    channels: [Channel<Q, A>; N],
     last_claimed: AtomicUsize,
 }
 
@@ -870,7 +868,7 @@ where
     /// [`interchange`](crate::interchange) macro can be used instead.
     pub fn new() -> Self {
         Self {
-            interchanges: core::array::from_fn(|_| Default::default()),
+            channels: core::array::from_fn(|_| Default::default()),
             last_claimed: AtomicUsize::new(0),
         }
     }
@@ -880,14 +878,14 @@ where
     // - Inline const expressions: https://github.com/rust-lang/rust/issues/76001
     #[cfg(not(loom))]
     #[doc(hidden)]
-    pub const fn const_new(interchanges: [Channel<Q, A>; N]) -> Self {
+    pub const fn const_new(channels: [Channel<Q, A>; N]) -> Self {
         Self {
-            interchanges,
+            channels,
             last_claimed: AtomicUsize::new(0),
         }
     }
 
-    /// Resets the claims, so that an previously claimed interchange can be claimed again.
+    /// Resets the claims, so that a previously claimed channel can be claimed again.
     ///
     /// This method should only be used in tests and is therefore beind the `reset-claims` feature flag.
     ///
@@ -911,7 +909,7 @@ where
             self.last_claimed.fetch_sub(1, Ordering::SeqCst);
             None
         } else {
-            Some(unsafe { self.interchanges[index].split() })
+            Some(unsafe { self.channels[index].split() })
         }
     }
 
