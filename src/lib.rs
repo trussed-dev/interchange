@@ -20,9 +20,8 @@
 //!
 //! ### Approach
 //! It is assumed that all requests fit in a single `Request` enum, and that
-//! all responses fit in single `Response` enum. The macro `interchange!`
-//! allocates a static buffer in which either response or request fit, and
-//! handles synchronization.
+//! all responses fit in single `Response` enum. The [`Channel`](Channel) and [`Interchange`](Interchange) structs allocate a single buffer in which either Request or Response fit and handle synchronization
+//! Both structures have `const` constructors, allowing them to be statically allocated.
 //!
 //! An alternative approach would be to use two heapless Queues of length one
 //! each for response and requests. The advantage of our construction is to
@@ -30,7 +29,7 @@
 //!
 //! ```
 //! # #![cfg(not(loom))]
-//! # use interchange::{State, Interchange, interchange};
+//! # use interchange::{State, Interchange};
 //! #[derive(Clone, Debug, PartialEq)]
 //! pub enum Request {
 //!     This(u8, u32),
@@ -43,8 +42,7 @@
 //!     There(i16),
 //! }
 //!
-//! static INTERCHANGE: Interchange<Request, Response, 1>
-//!      = interchange!(Request, Response);
+//! static INTERCHANGE: Interchange<Request, Response, 1> = Interchange::new();
 //!
 //! let (mut rq, mut rp) = INTERCHANGE.claim().unwrap();
 //!
@@ -356,6 +354,9 @@ where
     Q: Clone,
     A: Clone,
 {
+    #[cfg(not(loom))]
+    const CHANNEL_INIT: Channel<Q, A> = Self::new();
+
     // Loom's atomics are not const :/
     #[cfg(not(loom))]
     pub const fn new() -> Self {
@@ -886,7 +887,7 @@ unsafe impl<Q, A> Sync for Channel<Q, A> {}
 /// #     There(i16),
 /// # }
 /// #
-/// let interchange: Interchange<_,_,10> = Interchange::new();
+/// static interchange: Interchange<Request, Response,10> = Interchange::new();
 ///
 /// for i in 0..10 {
 ///     let rq: Requester<'_, Request, Response>;
@@ -905,24 +906,10 @@ where
     A: Clone,
 {
     /// Create a new Interchange
-    ///
-    /// Due to limitations of current Rust, this method cannot be const. The
-    /// [`interchange`](crate::interchange) macro can be used instead.
-    pub fn new() -> Self {
-        Self {
-            channels: core::array::from_fn(|_| Default::default()),
-            last_claimed: AtomicUsize::new(0),
-        }
-    }
-
-    // FIXME: There are many ways to make the new() function const:
-    // - Something like [const-zero]: https://docs.rs/const-zero could be used with #[repr(C)] on Message so that 0 = Message::None
-    // - Inline const expressions: https://github.com/rust-lang/rust/issues/76001
     #[cfg(not(loom))]
-    #[doc(hidden)]
-    pub const fn const_new(channels: [Channel<Q, A>; N]) -> Self {
+    pub const fn new() -> Self {
         Self {
-            channels,
+            channels: [Channel::<Q, A>::CHANNEL_INIT; N],
             last_claimed: AtomicUsize::new(0),
         }
     }
@@ -953,6 +940,7 @@ where
     }
 }
 
+#[cfg(not(loom))]
 impl<Q, A, const N: usize> Default for Interchange<Q, A, N>
 where
     Q: Clone,
@@ -961,46 +949,4 @@ where
     fn default() -> Self {
         Self::new()
     }
-}
-
-/// Create a [Interchange](Interchange) in a `const` context
-///
-/// This is macro is a hack around limitations with `const` and generics in the rust compiler.
-/// [Interchange::new()](Interchange::new) will be made const when the necessary compiler features
-/// are stabilized.
-///
-/// ```
-/// # #![cfg(not(loom))]
-/// # use interchange::*;
-/// # #[derive(Clone, Debug, PartialEq)]
-/// # pub enum Request {
-/// #     This(u8, u32),
-/// #     That(i64),
-/// # }
-/// #
-/// # #[derive(Clone, Debug, PartialEq)]
-/// # pub enum Response {
-/// #     Here(u8, u8, u8),
-/// #     There(i16),
-/// # }
-/// #
-/// static INTERCHANGE: Interchange<Request, Response, 10>
-///      = interchange!(Request, Response, 10);
-///
-/// for i in 0..10 {
-///     let rq: Requester<'static, Request, Response>;
-///     let rp: Responder<'static, Request, Response>;
-///     (rq, rp) = INTERCHANGE.claim().unwrap() ;
-/// }
-/// ```
-#[macro_export]
-macro_rules! interchange {
-    ($REQUEST:ty, $RESPONSE:ty) => {
-        $crate::interchange!($REQUEST, $RESPONSE, 1);
-    };
-    ($REQUEST:ty, $RESPONSE:ty, $N:expr) => {{
-        #[allow(clippy::declare_interior_mutable_const)]
-        const CHANNEL_NEW: $crate::Channel<$REQUEST, $RESPONSE> = $crate::Channel::new();
-        Interchange::const_new([CHANNEL_NEW; $N])
-    }};
 }
