@@ -933,11 +933,6 @@ where
         }
         None
     }
-
-    /// Number of clients remaining to claim
-    pub fn unclaimed_clients(&self) -> usize {
-        N - self.last_claimed.load(core::sync::atomic::Ordering::SeqCst)
-    }
 }
 
 #[cfg(not(loom))]
