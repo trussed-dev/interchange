@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Remove usage of macros and replace it with `const` and generics
+
 ## [0.2.2]- 2021-04-23
 - Soundness fix @sosthene-nitrokey
 
