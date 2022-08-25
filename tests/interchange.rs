@@ -1,3 +1,5 @@
+#![cfg(not(loom))]
+
 use interchange::Interchange;
 
 #[test]
