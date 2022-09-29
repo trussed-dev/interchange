@@ -542,3 +542,6 @@ where
         }
     }
 }
+
+unsafe impl<I: Interchange> Sync for Requester<I> {}
+unsafe impl<I: Interchange> Sync for Responder<I> {}
