@@ -52,24 +52,23 @@ macro_rules! interchange {
 
                 #[allow(clippy::declare_interior_mutable_const)]
                 const INTERCHANGE_NONE: UnsafeCell<$Name> = UnsafeCell::new($Name::None);
+                // `mut` is required because UnsafeCell is neither Send nor Sync
                 static mut INTERCHANGES: [UnsafeCell<$Name>; $N] = [INTERCHANGE_NONE; $N];
                 #[allow(clippy::declare_interior_mutable_const)]
                 const ATOMIC_ZERO: AtomicU8 = AtomicU8::new(0);
-                static mut STATES: [AtomicU8; $N] = [ATOMIC_ZERO; $N];
+                static STATES: [AtomicU8; $N] = [ATOMIC_ZERO; $N];
 
-                unsafe {
-                    (
-                        $crate::Requester {
-                            interchange: &INTERCHANGES[i],
-                            state: &STATES[i],
-                        },
+                (
+                    $crate::Requester {
+                        interchange: unsafe { &INTERCHANGES[i] },
+                        state: &STATES[i],
+                    },
 
-                        $crate::Responder {
-                            interchange: &INTERCHANGES[i],
-                            state: &STATES[i],
-                        },
-                    )
-                }
+                    $crate::Responder {
+                        interchange: unsafe { &INTERCHANGES[i] },
+                        state: &STATES[i],
+                    },
+                )
             }
 
             fn last_claimed() -> &'static core::sync::atomic::AtomicUsize {
