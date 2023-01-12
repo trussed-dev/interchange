@@ -41,7 +41,7 @@ fn loom_interchange() {
 }
 
 fn requester_thread(mut requester: Requester<'static, u64, u64>) -> Option<()> {
-    requester.request(&53).unwrap();
+    requester.request(53).unwrap();
     requester.with_response(|r| assert_eq!(*r, 63)).ok()?;
     requester.with_response(|r| assert_eq!(*r, 63)).ok()?;
     requester.take_response().unwrap();
@@ -63,7 +63,7 @@ fn requester_thread(mut requester: Requester<'static, u64, u64>) -> Option<()> {
 fn responder_thread(mut responder: Responder<'static, u64, u64>) -> Option<()> {
     let req = responder.take_request()?;
     assert_eq!(req, 53);
-    responder.respond(&(req + 10)).unwrap();
+    responder.respond(req + 10).unwrap();
     thread::yield_now();
     responder
         .with_request(|r| {
