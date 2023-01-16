@@ -184,13 +184,13 @@ impl From<u8> for State {
 // the repr(u8) is necessary so MaybeUninit::zeroized.assume_init() is valid and corresponds to
 // None
 #[repr(u8)]
-enum Message<Q, A> {
+enum Message<Rq, Rp> {
     None,
-    Request(Q),
-    Response(A),
+    Request(Rq),
+    Response(Rp),
 }
 
-impl<Q, A> Message<Q, A> {
+impl<Rq, Rp> Message<Rq, Rp> {
     fn is_request_state(&self) -> bool {
         matches!(self, Self::Request(_))
     }
@@ -199,7 +199,7 @@ impl<Q, A> Message<Q, A> {
         matches!(self, Self::Response(_))
     }
 
-    unsafe fn take_rq(&mut self) -> Q {
+    unsafe fn take_rq(&mut self) -> Rq {
         let this = core::mem::replace(self, Message::None);
         match this {
             Message::Request(r) => r,
@@ -207,21 +207,21 @@ impl<Q, A> Message<Q, A> {
         }
     }
 
-    unsafe fn rq_ref(&self) -> &Q {
+    unsafe fn rq_ref(&self) -> &Rq {
         match *self {
             Self::Request(ref request) => request,
             _ => unreachable!(),
         }
     }
 
-    unsafe fn rq_mut(&mut self) -> &mut Q {
+    unsafe fn rq_mut(&mut self) -> &mut Rq {
         match *self {
             Self::Request(ref mut request) => request,
             _ => unreachable!(),
         }
     }
 
-    unsafe fn take_rp(&mut self) -> A {
+    unsafe fn take_rp(&mut self) -> Rp {
         let this = core::mem::replace(self, Message::None);
         match this {
             Message::Response(r) => r,
@@ -229,25 +229,25 @@ impl<Q, A> Message<Q, A> {
         }
     }
 
-    unsafe fn rp_ref(&self) -> &A {
+    unsafe fn rp_ref(&self) -> &Rp {
         match *self {
             Self::Response(ref response) => response,
             _ => unreachable!(),
         }
     }
 
-    unsafe fn rp_mut(&mut self) -> &mut A {
+    unsafe fn rp_mut(&mut self) -> &mut Rp {
         match *self {
             Self::Response(ref mut response) => response,
             _ => unreachable!(),
         }
     }
 
-    fn from_rq(rq: Q) -> Self {
+    fn from_rq(rq: Rq) -> Self {
         Self::Request(rq)
     }
 
-    fn from_rp(rp: A) -> Self {
+    fn from_rp(rp: Rp) -> Self {
         Self::Response(rp)
     }
 }
@@ -338,16 +338,16 @@ impl<Q, A> Message<Q, A> {
 /// assert_eq!(response, Response::Here(3,2,1));
 ///
 /// ```
-pub struct Channel<Q, A> {
-    data: UnsafeCell<Message<Q, A>>,
+pub struct Channel<Rq, Rp> {
+    data: UnsafeCell<Message<Rq, Rp>>,
     state: AtomicU8,
     requester_claimed: AtomicBool,
     responder_claimed: AtomicBool,
 }
 
-impl<Q, A> Channel<Q, A> {
+impl<Rq, Rp> Channel<Rq, Rp> {
     #[cfg(not(loom))]
-    const CHANNEL_INIT: Channel<Q, A> = Self::new();
+    const CHANNEL_INIT: Channel<Rq, Rp> = Self::new();
 
     // Loom's atomics are not const :/
     #[cfg(not(loom))]
@@ -373,7 +373,7 @@ impl<Q, A> Channel<Q, A> {
     /// Obtain the requester end of the channel if it hasn't been taken yet.
     ///
     /// Can be called again if the previously obtained [`Requester`](Requester) has been dropped
-    pub fn requester(&self) -> Option<Requester<'_, Q, A>> {
+    pub fn requester(&self) -> Option<Requester<'_, Rq, Rp>> {
         if self
             .requester_claimed
             .compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed)
@@ -388,7 +388,7 @@ impl<Q, A> Channel<Q, A> {
     /// Obtain the responder end of the channel if it hasn't been taken yet.
     ///
     /// Can be called again if the previously obtained [`Responder`](Responder) has been dropped
-    pub fn responder(&self) -> Option<Responder<'_, Q, A>> {
+    pub fn responder(&self) -> Option<Responder<'_, Rq, Rp>> {
         if self
             .responder_claimed
             .compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed)
@@ -403,12 +403,12 @@ impl<Q, A> Channel<Q, A> {
     /// Obtain both the requester and responder ends of the channel.
     ///
     /// Can be called again if the previously obtained [`Responder`](Responder) and [`Requester`](Requester) have been dropped
-    pub fn split(&self) -> Option<(Requester<'_, Q, A>, Responder<'_, Q, A>)> {
+    pub fn split(&self) -> Option<(Requester<'_, Rq, Rp>, Responder<'_, Rq, Rp>)> {
         Some((self.requester()?, self.responder()?))
     }
 }
 
-impl<Q, A> Default for Channel<Q, A> {
+impl<Rq, Rp> Default for Channel<Rq, Rp> {
     fn default() -> Self {
         Self::new()
     }
@@ -418,11 +418,11 @@ impl<Q, A> Default for Channel<Q, A> {
 ///
 /// For a `static` [`Channel`](Channel) or [`Interchange`](Interchange),
 /// the requester uses a `'static` lifetime parameter
-pub struct Requester<'i, Q, A> {
-    channel: &'i Channel<Q, A>,
+pub struct Requester<'i, Rq, Rp> {
+    channel: &'i Channel<Rq, Rp>,
 }
 
-impl<'i, Q, A> Drop for Requester<'i, Q, A> {
+impl<'i, Rq, Rp> Drop for Requester<'i, Rq, Rp> {
     fn drop(&mut self) {
         self.channel
             .requester_claimed
@@ -430,7 +430,7 @@ impl<'i, Q, A> Drop for Requester<'i, Q, A> {
     }
 }
 
-impl<'i, Q, A> Requester<'i, Q, A> {
+impl<'i, Rq, Rp> Requester<'i, Rq, Rp> {
     #[inline]
     fn transition(&self, from: State, to: State) -> bool {
         self.channel
@@ -440,32 +440,32 @@ impl<'i, Q, A> Requester<'i, Q, A> {
     }
 
     #[cfg(not(loom))]
-    unsafe fn data(&self) -> &Message<Q, A> {
+    unsafe fn data(&self) -> &Message<Rq, Rp> {
         &mut *self.channel.data.get()
     }
 
     #[cfg(not(loom))]
-    unsafe fn data_mut(&mut self) -> &mut Message<Q, A> {
+    unsafe fn data_mut(&mut self) -> &mut Message<Rq, Rp> {
         &mut *self.channel.data.get()
     }
 
     #[cfg(not(loom))]
-    unsafe fn with_data<R>(&self, f: impl FnOnce(&Message<Q, A>) -> R) -> R {
+    unsafe fn with_data<R>(&self, f: impl FnOnce(&Message<Rq, Rp>) -> R) -> R {
         f(&*self.channel.data.get())
     }
 
     #[cfg(not(loom))]
-    unsafe fn with_data_mut<R>(&mut self, f: impl FnOnce(&mut Message<Q, A>) -> R) -> R {
+    unsafe fn with_data_mut<R>(&mut self, f: impl FnOnce(&mut Message<Rq, Rp>) -> R) -> R {
         f(&mut *self.channel.data.get())
     }
 
     #[cfg(loom)]
-    unsafe fn with_data<R>(&self, f: impl FnOnce(&Message<Q, A>) -> R) -> R {
+    unsafe fn with_data<R>(&self, f: impl FnOnce(&Message<Rq, Rp>) -> R) -> R {
         self.channel.data.with(|i| f(&*i))
     }
 
     #[cfg(loom)]
-    unsafe fn with_data_mut<R>(&mut self, f: impl FnOnce(&mut Message<Q, A>) -> R) -> R {
+    unsafe fn with_data_mut<R>(&mut self, f: impl FnOnce(&mut Message<Rq, Rp>) -> R) -> R {
         self.channel.data.with_mut(|i| f(&mut *i))
     }
 
@@ -487,7 +487,7 @@ impl<'i, Q, A> Requester<'i, Q, A> {
     ///
     /// If the RPC state is `Idle`, this always succeeds, else calling
     /// is a logic error and the request is returned.
-    pub fn request(&mut self, request: Q) -> Result<(), Error> {
+    pub fn request(&mut self, request: Rq) -> Result<(), Error> {
         if State::Idle == self.channel.state.load(Ordering::Acquire) {
             unsafe {
                 self.with_data_mut(|i| *i = Message::from_rq(request));
@@ -509,7 +509,7 @@ impl<'i, Q, A> Requester<'i, Q, A> {
     /// If the responder has taken the request (is processing), we succeed and return None.
     ///
     /// In other cases (`Idle` or `Reponsed`) there is nothing to cancel and we fail.
-    pub fn cancel(&mut self) -> Result<Option<Q>, Error> {
+    pub fn cancel(&mut self) -> Result<Option<Rq>, Error> {
         // we canceled before the responder was even aware of the request.
         if self.transition(State::Requested, State::CancelingRequested) {
             self.channel
@@ -538,7 +538,7 @@ impl<'i, Q, A> Requester<'i, Q, A> {
     // Safety: We cannot test this with loom efficiently, but given that `with_response` is tested,
     // this is likely correct
     #[cfg(not(loom))]
-    pub fn response(&self) -> Result<&A, Error> {
+    pub fn response(&self) -> Result<&Rp, Error> {
         if self.transition(State::Responded, State::Responded) {
             Ok(unsafe { self.data().rp_ref() })
         } else {
@@ -549,7 +549,7 @@ impl<'i, Q, A> Requester<'i, Q, A> {
     /// If there is a request waiting, perform an operation with a reference to it
     ///
     /// This may be called multiple times.
-    pub fn with_response<R>(&self, f: impl FnOnce(&A) -> R) -> Result<R, Error> {
+    pub fn with_response<R>(&self, f: impl FnOnce(&Rp) -> R) -> Result<R, Error> {
         if self.transition(State::Responded, State::Responded) {
             Ok(unsafe { self.with_data(|i| f(i.rp_ref())) })
         } else {
@@ -564,7 +564,7 @@ impl<'i, Q, A> Requester<'i, Q, A> {
     /// If you need copies, clone the request.
     // It is a logic error to call this method if we're Idle or Canceled, but
     // it seems unnecessary to model this.
-    pub fn take_response(&mut self) -> Option<A> {
+    pub fn take_response(&mut self) -> Option<Rp> {
         if self.transition(State::Responded, State::Idle) {
             Some(unsafe { self.with_data_mut(|i| i.take_rp()) })
         } else {
@@ -573,21 +573,21 @@ impl<'i, Q, A> Requester<'i, Q, A> {
     }
 }
 
-impl<'i, Q, A> Requester<'i, Q, A>
+impl<'i, Rq, Rp> Requester<'i, Rq, Rp>
 where
-    Q: Default,
+    Rq: Default,
 {
     /// Initialize a request with its default values and mutates it with `f`
     ///
     /// This is usefull to build large structures in-place
-    pub fn with_request_mut<R>(&mut self, f: impl FnOnce(&mut Q) -> R) -> Result<R, Error> {
+    pub fn with_request_mut<R>(&mut self, f: impl FnOnce(&mut Rq) -> R) -> Result<R, Error> {
         if self.transition(State::Idle, State::BuildingRequest)
             || self.transition(State::BuildingRequest, State::BuildingRequest)
         {
             let res = unsafe {
                 self.with_data_mut(|i| {
                     if !i.is_request_state() {
-                        *i = Message::from_rq(Q::default());
+                        *i = Message::from_rq(Rq::default());
                     }
                     f(i.rq_mut())
                 })
@@ -604,14 +604,14 @@ where
     // Safety: We cannot test this with loom efficiently, but given that `with_request_mut` is tested,
     // this is likely correct
     #[cfg(not(loom))]
-    pub fn request_mut(&mut self) -> Result<&mut Q, Error> {
+    pub fn request_mut(&mut self) -> Result<&mut Rq, Error> {
         if self.transition(State::Idle, State::BuildingRequest)
             || self.transition(State::BuildingRequest, State::BuildingRequest)
         {
             unsafe {
                 self.with_data_mut(|i| {
                     if !i.is_request_state() {
-                        *i = Message::from_rq(Q::default());
+                        *i = Message::from_rq(Rq::default());
                     }
                 })
             }
@@ -639,11 +639,11 @@ where
 ///
 /// For a `static` [`Channel`](Channel) or [`Interchange`](Interchange),
 /// the responder uses a `'static` lifetime parameter
-pub struct Responder<'i, Q, A> {
-    channel: &'i Channel<Q, A>,
+pub struct Responder<'i, Rq, Rp> {
+    channel: &'i Channel<Rq, Rp>,
 }
 
-impl<'i, Q, A> Drop for Responder<'i, Q, A> {
+impl<'i, Rq, Rp> Drop for Responder<'i, Rq, Rp> {
     fn drop(&mut self) {
         self.channel
             .responder_claimed
@@ -651,7 +651,7 @@ impl<'i, Q, A> Drop for Responder<'i, Q, A> {
     }
 }
 
-impl<'i, Q, A> Responder<'i, Q, A> {
+impl<'i, Rq, Rp> Responder<'i, Rq, Rp> {
     #[inline]
     fn transition(&self, from: State, to: State) -> bool {
         self.channel
@@ -661,32 +661,32 @@ impl<'i, Q, A> Responder<'i, Q, A> {
     }
 
     #[cfg(not(loom))]
-    unsafe fn data(&self) -> &Message<Q, A> {
+    unsafe fn data(&self) -> &Message<Rq, Rp> {
         &mut *self.channel.data.get()
     }
 
     #[cfg(not(loom))]
-    unsafe fn data_mut(&mut self) -> &mut Message<Q, A> {
+    unsafe fn data_mut(&mut self) -> &mut Message<Rq, Rp> {
         &mut *self.channel.data.get()
     }
 
     #[cfg(not(loom))]
-    unsafe fn with_data<R>(&self, f: impl FnOnce(&Message<Q, A>) -> R) -> R {
+    unsafe fn with_data<R>(&self, f: impl FnOnce(&Message<Rq, Rp>) -> R) -> R {
         f(&*self.channel.data.get())
     }
 
     #[cfg(not(loom))]
-    unsafe fn with_data_mut<R>(&mut self, f: impl FnOnce(&mut Message<Q, A>) -> R) -> R {
+    unsafe fn with_data_mut<R>(&mut self, f: impl FnOnce(&mut Message<Rq, Rp>) -> R) -> R {
         f(&mut *self.channel.data.get())
     }
 
     #[cfg(loom)]
-    unsafe fn with_data<R>(&self, f: impl FnOnce(&Message<Q, A>) -> R) -> R {
+    unsafe fn with_data<R>(&self, f: impl FnOnce(&Message<Rq, Rp>) -> R) -> R {
         self.channel.data.with(|i| f(&*i))
     }
 
     #[cfg(loom)]
-    unsafe fn with_data_mut<R>(&mut self, f: impl FnOnce(&mut Message<Q, A>) -> R) -> R {
+    unsafe fn with_data_mut<R>(&mut self, f: impl FnOnce(&mut Message<Rq, Rp>) -> R) -> R {
         self.channel.data.with_mut(|i| f(&mut *i))
     }
 
@@ -705,7 +705,7 @@ impl<'i, Q, A> Responder<'i, Q, A> {
     ///
     /// This may be called only once as it move the state to BuildingResponse.
     /// If you need copies, use `take_request`
-    pub fn with_request<R>(&self, f: impl FnOnce(&Q) -> R) -> Result<R, Error> {
+    pub fn with_request<R>(&self, f: impl FnOnce(&Rq) -> R) -> Result<R, Error> {
         if self.transition(State::Requested, State::BuildingResponse) {
             Ok(unsafe { self.with_data(|i| f(i.rq_ref())) })
         } else {
@@ -719,7 +719,7 @@ impl<'i, Q, A> Responder<'i, Q, A> {
     // Safety: We cannot test this with loom efficiently, but given that `with_request` is tested,
     // this is likely correct
     #[cfg(not(loom))]
-    pub fn request(&self) -> Result<&Q, Error> {
+    pub fn request(&self) -> Result<&Rq, Error> {
         if self.transition(State::Requested, State::BuildingResponse) {
             Ok(unsafe { self.data().rq_ref() })
         } else {
@@ -731,7 +731,7 @@ impl<'i, Q, A> Responder<'i, Q, A> {
     ///
     /// This may be called only once as it move the state to BuildingResponse.
     /// If you need copies, clone the request.
-    pub fn take_request(&mut self) -> Option<Q> {
+    pub fn take_request(&mut self) -> Option<Rq> {
         if self.transition(State::Requested, State::BuildingResponse) {
             Some(unsafe { self.with_data_mut(|i| i.take_rq()) })
         } else {
@@ -770,7 +770,7 @@ impl<'i, Q, A> Responder<'i, Q, A> {
     /// If efficiency is a concern, or responses need multiple steps to
     /// construct, use `with_response_mut` or `response_mut` and `send_response`.
     ///
-    pub fn respond(&mut self, response: A) -> Result<(), Error> {
+    pub fn respond(&mut self, response: Rp) -> Result<(), Error> {
         if State::BuildingResponse == self.channel.state.load(Ordering::Acquire) {
             unsafe {
                 self.with_data_mut(|i| *i = Message::from_rp(response));
@@ -785,21 +785,21 @@ impl<'i, Q, A> Responder<'i, Q, A> {
     }
 }
 
-impl<'i, Q, A> Responder<'i, Q, A>
+impl<'i, Rq, Rp> Responder<'i, Rq, Rp>
 where
-    A: Default,
+    Rp: Default,
 {
     /// Initialize a response with its default values and mutates it with `f`
     ///
     /// This is usefull to build large structures in-place
-    pub fn with_response_mut<R>(&mut self, f: impl FnOnce(&mut A) -> R) -> Result<R, Error> {
+    pub fn with_response_mut<R>(&mut self, f: impl FnOnce(&mut Rp) -> R) -> Result<R, Error> {
         if self.transition(State::Requested, State::BuildingResponse)
             || self.transition(State::BuildingResponse, State::BuildingResponse)
         {
             let res = unsafe {
                 self.with_data_mut(|i| {
                     if !i.is_response_state() {
-                        *i = Message::from_rp(A::default());
+                        *i = Message::from_rp(Rp::default());
                     }
                     f(i.rp_mut())
                 })
@@ -816,14 +816,14 @@ where
     // Safety: We cannot test this with loom efficiently, but given that `with_response_mut` is tested,
     // this is likely correct
     #[cfg(not(loom))]
-    pub fn response_mut(&mut self) -> Result<&mut A, Error> {
+    pub fn response_mut(&mut self) -> Result<&mut Rp, Error> {
         if self.transition(State::Requested, State::BuildingResponse)
             || self.transition(State::BuildingResponse, State::BuildingResponse)
         {
             unsafe {
                 self.with_data_mut(|i| {
                     if !i.is_response_state() {
-                        *i = Message::from_rp(A::default());
+                        *i = Message::from_rp(Rp::default());
                     }
                 })
             }
@@ -847,10 +847,10 @@ where
     }
 }
 
-unsafe impl<'i, Q, A> Send for Responder<'i, Q, A> {}
-unsafe impl<'i, Q, A> Send for Requester<'i, Q, A> {}
-unsafe impl<Q, A> Send for Channel<Q, A> {}
-unsafe impl<Q, A> Sync for Channel<Q, A> {}
+unsafe impl<'i, Rq, Rp> Send for Responder<'i, Rq, Rp> {}
+unsafe impl<'i, Rq, Rp> Send for Requester<'i, Rq, Rp> {}
+unsafe impl<Rq, Rp> Send for Channel<Rq, Rp> {}
+unsafe impl<Rq, Rp> Sync for Channel<Rq, Rp> {}
 
 /// Set of `N` channels
 ///
@@ -879,23 +879,23 @@ unsafe impl<Q, A> Sync for Channel<Q, A> {}
 ///     (rq, rp) = interchange.claim().unwrap() ;
 /// }
 /// ```
-pub struct Interchange<Q, A, const N: usize> {
-    channels: [Channel<Q, A>; N],
+pub struct Interchange<Rq, Rp, const N: usize> {
+    channels: [Channel<Rq, Rp>; N],
     last_claimed: AtomicUsize,
 }
 
-impl<Q, A, const N: usize> Interchange<Q, A, N> {
+impl<Rq, Rp, const N: usize> Interchange<Rq, Rp, N> {
     /// Create a new Interchange
     #[cfg(not(loom))]
     pub const fn new() -> Self {
         Self {
-            channels: [Channel::<Q, A>::CHANNEL_INIT; N],
+            channels: [Channel::<Rq, Rp>::CHANNEL_INIT; N],
             last_claimed: AtomicUsize::new(0),
         }
     }
 
     /// Claim one of the channels of the interchange. Returns None if called more than `N` times.
-    pub fn claim(&self) -> Option<(Requester<Q, A>, Responder<Q, A>)> {
+    pub fn claim(&self) -> Option<(Requester<Rq, Rp>, Responder<Rq, Rp>)> {
         let index = self.last_claimed.fetch_add(1, Ordering::Relaxed);
 
         for i in (index % N)..N {
@@ -916,7 +916,7 @@ impl<Q, A, const N: usize> Interchange<Q, A, N> {
 }
 
 #[cfg(not(loom))]
-impl<Q, A, const N: usize> Default for Interchange<Q, A, N> {
+impl<Rq, Rp, const N: usize> Default for Interchange<Rq, Rp, N> {
     fn default() -> Self {
         Self::new()
     }
