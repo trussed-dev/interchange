@@ -199,7 +199,7 @@ impl<Rq, Rp> Message<Rq, Rp> {
         matches!(self, Self::Response(_))
     }
 
-    unsafe fn take_rq(&mut self) -> Rq {
+    fn take_rq(&mut self) -> Rq {
         let this = core::mem::replace(self, Message::None);
         match this {
             Message::Request(r) => r,
@@ -207,21 +207,21 @@ impl<Rq, Rp> Message<Rq, Rp> {
         }
     }
 
-    unsafe fn rq_ref(&self) -> &Rq {
+    fn rq_ref(&self) -> &Rq {
         match *self {
             Self::Request(ref request) => request,
             _ => unreachable!(),
         }
     }
 
-    unsafe fn rq_mut(&mut self) -> &mut Rq {
+    fn rq_mut(&mut self) -> &mut Rq {
         match *self {
             Self::Request(ref mut request) => request,
             _ => unreachable!(),
         }
     }
 
-    unsafe fn take_rp(&mut self) -> Rp {
+    fn take_rp(&mut self) -> Rp {
         let this = core::mem::replace(self, Message::None);
         match this {
             Message::Response(r) => r,
@@ -229,14 +229,14 @@ impl<Rq, Rp> Message<Rq, Rp> {
         }
     }
 
-    unsafe fn rp_ref(&self) -> &Rp {
+    fn rp_ref(&self) -> &Rp {
         match *self {
             Self::Response(ref response) => response,
             _ => unreachable!(),
         }
     }
 
-    unsafe fn rp_mut(&mut self) -> &mut Rp {
+    fn rp_mut(&mut self) -> &mut Rp {
         match *self {
             Self::Response(ref mut response) => response,
             _ => unreachable!(),
