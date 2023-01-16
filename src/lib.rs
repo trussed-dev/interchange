@@ -370,11 +370,13 @@ impl<Q, A> Channel<Q, A> {
         }
     }
 
-    /// Obtain the requester end of the channel if it hasn't been taken yet
+    /// Obtain the requester end of the channel if it hasn't been taken yet.
+    ///
+    /// Can be called again if the previously obtained [`Requester`](Requester) has been dropped
     pub fn requester(&self) -> Option<Requester<'_, Q, A>> {
         if self
             .requester_claimed
-            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed)
             .is_ok()
         {
             Some(Requester { channel: self })
@@ -383,11 +385,13 @@ impl<Q, A> Channel<Q, A> {
         }
     }
 
-    /// Obtain the responder end of the channel if it hasn't been taken yet
+    /// Obtain the responder end of the channel if it hasn't been taken yet.
+    ///
+    /// Can be called again if the previously obtained [`Responder`](Responder) has been dropped
     pub fn responder(&self) -> Option<Responder<'_, Q, A>> {
         if self
             .responder_claimed
-            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed)
             .is_ok()
         {
             Some(Responder { channel: self })
@@ -396,7 +400,9 @@ impl<Q, A> Channel<Q, A> {
         }
     }
 
-    /// Obtain both the requester and responder ends of the channel
+    /// Obtain both the requester and responder ends of the channel.
+    ///
+    /// Can be called again if the previously obtained [`Responder`](Responder) and [`Requester`](Requester) have been dropped
     pub fn split(&self) -> Option<(Requester<'_, Q, A>, Responder<'_, Q, A>)> {
         Some((self.requester()?, self.responder()?))
     }
@@ -890,7 +896,7 @@ impl<Q, A, const N: usize> Interchange<Q, A, N> {
 
     /// Claim one of the channels of the interchange. Returns None if called more than `N` times.
     pub fn claim(&self) -> Option<(Requester<Q, A>, Responder<Q, A>)> {
-        let index = self.last_claimed.fetch_add(1, Ordering::SeqCst);
+        let index = self.last_claimed.fetch_add(1, Ordering::Relaxed);
 
         for i in (index % N)..N {
             let tmp = self.channels[i].split();
