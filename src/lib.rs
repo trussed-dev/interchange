@@ -810,7 +810,7 @@ where
     // Safety: We cannot test this with loom efficiently, but given that `with_response_mut` is tested,
     // this is likely correct
     #[cfg(not(loom))]
-    pub fn response(&mut self) -> Result<&mut A, Error> {
+    pub fn response_mut(&mut self) -> Result<&mut A, Error> {
         if self.transition(State::Requested, State::BuildingResponse)
             || self.transition(State::BuildingResponse, State::BuildingResponse)
         {
