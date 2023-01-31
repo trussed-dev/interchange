@@ -15,12 +15,17 @@ jobs:
         toolchain: stable
         override: true
     - name: Build
-      run: cargo build --verbose
+      run: RUSTFLAGS="-D warnings" cargo build --verbose --all-targets --all-features
     - name: Run tests
       run: make test
-
     - name: Build Documentation
-      run: cargo doc --no-deps --all-features
+      run: RUSTDOCFLAGS="-D warnings" cargo doc --no-deps
+    - name: Run rustfmt
+      run: cargo fmt -- --check
+    - name: Run clippy
+      run: |
+        cargo clippy --all-targets --all-features -- --deny warnings
+        RUSTFLAGS='--cfg loom' cargo clippy --all-targets --all-features -- --deny warnings
     - name: Deploy Docs
       uses: peaceiris/actions-gh-pages@v3
       with:
