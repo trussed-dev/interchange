@@ -997,16 +997,16 @@ mod tests {
         let request = Request::This(1, 2);
         assert!(rq.request(request).is_ok());
         let request = rp.take_request().unwrap();
-        println!("rp got request: {:?}", request);
+        println!("rp got request: {request:?}");
         let response = Response::There(-1);
         assert!(!rp.is_canceled());
         assert!(rp.respond(response).is_ok());
         let response = rq.take_response().unwrap();
-        println!("rq got response: {:?}", response);
+        println!("rq got response: {response:?}");
         // early cancelation path
         assert!(rq.request(request).is_ok());
         let request = rq.cancel().unwrap().unwrap();
-        println!("responder could cancel: {:?}", request);
+        println!("responder could cancel: {request:?}");
         assert!(rp.take_request().is_none());
         assert_eq!(State::Idle, rq.state());
         // late cancelation
@@ -1026,7 +1026,7 @@ mod tests {
         assert!(rq.send_request().is_ok());
         let request = rp.take_request().unwrap();
         assert_eq!(request, Request::This(1, 2));
-        println!("rp got request: {:?}", request);
+        println!("rp got request: {request:?}");
         // building into response buffer
         rp.with_response_mut(|r| *r = Response::Here(3, 2, 1))
             .unwrap();
@@ -1046,16 +1046,16 @@ mod tests {
         let request = Request::This(1, 2);
         assert!(rq.request(request).is_ok());
         let request = rp.take_request().unwrap();
-        println!("rp got request: {:?}", request);
+        println!("rp got request: {request:?}");
         let response = Response::There(-1);
         assert!(!rp.is_canceled());
         assert!(rp.respond(response).is_ok());
         let response = rq.take_response().unwrap();
-        println!("rq got response: {:?}", response);
+        println!("rq got response: {response:?}");
         // early cancelation path
         assert!(rq.request(request).is_ok());
         let request = rq.cancel().unwrap().unwrap();
-        println!("responder could cancel: {:?}", request);
+        println!("responder could cancel: {request:?}");
         assert!(rp.take_request().is_none());
         assert_eq!(State::Idle, rq.state());
         // late cancelation
@@ -1075,7 +1075,7 @@ mod tests {
         assert!(rq.send_request().is_ok());
         let request = rp.take_request().unwrap();
         assert_eq!(request, Request::This(1, 2));
-        println!("rp got request: {:?}", request);
+        println!("rp got request: {request:?}");
         // building into response buffer
         rp.with_response_mut(|r| *r = Response::Here(3, 2, 1))
             .unwrap();
