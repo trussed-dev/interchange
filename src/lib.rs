@@ -964,3 +964,123 @@ impl<Rq, Rp, const N: usize> Default for Interchange<Rq, Rp, N> {
         Self::new()
     }
 }
+
+#[cfg(all(not(loom), test))]
+mod tests {
+    use super::*;
+    #[derive(Clone, Debug, PartialEq)]
+    pub enum Request {
+        This(u8, u32),
+    }
+    #[derive(Clone, Debug, PartialEq)]
+    pub enum Response {
+        Here(u8, u8, u8),
+        There(i16),
+    }
+    impl Default for Response {
+        fn default() -> Self {
+            Response::There(1)
+        }
+    }
+    impl Default for Request {
+        fn default() -> Self {
+            Request::This(0, 0)
+        }
+    }
+
+    #[test]
+    fn interchange() {
+        static INTERCHANGE: Interchange<Request, Response, 1> = Interchange::new();
+        let (mut rq, mut rp) = INTERCHANGE.claim().unwrap();
+        assert_eq!(rq.state(), State::Idle);
+        // happy path: no cancelation
+        let request = Request::This(1, 2);
+        assert!(rq.request(request).is_ok());
+        let request = rp.take_request().unwrap();
+        println!("rp got request: {:?}", request);
+        let response = Response::There(-1);
+        assert!(!rp.is_canceled());
+        assert!(rp.respond(response).is_ok());
+        let response = rq.take_response().unwrap();
+        println!("rq got response: {:?}", response);
+        // early cancelation path
+        assert!(rq.request(request).is_ok());
+        let request = rq.cancel().unwrap().unwrap();
+        println!("responder could cancel: {:?}", request);
+        assert!(rp.take_request().is_none());
+        assert_eq!(State::Idle, rq.state());
+        // late cancelation
+        assert!(rq.request(request).is_ok());
+        let request = rp.take_request().unwrap();
+        println!(
+            "responder could cancel: {:?}",
+            &rq.cancel().unwrap().is_none()
+        );
+        assert_eq!(request, Request::This(1, 2));
+        assert!(rp.is_canceled());
+        assert!(rp.respond(response).is_err());
+        assert!(rp.acknowledge_cancel().is_ok());
+        assert_eq!(State::Idle, rq.state());
+        // building into request buffer
+        rq.with_request_mut(|r| *r = Request::This(1, 2)).unwrap();
+        assert!(rq.send_request().is_ok());
+        let request = rp.take_request().unwrap();
+        assert_eq!(request, Request::This(1, 2));
+        println!("rp got request: {:?}", request);
+        // building into response buffer
+        rp.with_response_mut(|r| *r = Response::Here(3, 2, 1))
+            .unwrap();
+        assert!(rp.send_response().is_ok());
+        let response = rq.take_response().unwrap();
+        assert_eq!(response, Response::Here(3, 2, 1));
+    }
+
+    #[test]
+    fn interchange_ref() {
+        static INTERCHANGE_INNER: Interchange<Request, Response, 1> = Interchange::new();
+        static INTERCHANGE: InterchangeRef<'static, Request, Response> =
+            INTERCHANGE_INNER.as_interchange_ref();
+        let (mut rq, mut rp) = INTERCHANGE.claim().unwrap();
+        assert_eq!(rq.state(), State::Idle);
+        // happy path: no cancelation
+        let request = Request::This(1, 2);
+        assert!(rq.request(request).is_ok());
+        let request = rp.take_request().unwrap();
+        println!("rp got request: {:?}", request);
+        let response = Response::There(-1);
+        assert!(!rp.is_canceled());
+        assert!(rp.respond(response).is_ok());
+        let response = rq.take_response().unwrap();
+        println!("rq got response: {:?}", response);
+        // early cancelation path
+        assert!(rq.request(request).is_ok());
+        let request = rq.cancel().unwrap().unwrap();
+        println!("responder could cancel: {:?}", request);
+        assert!(rp.take_request().is_none());
+        assert_eq!(State::Idle, rq.state());
+        // late cancelation
+        assert!(rq.request(request).is_ok());
+        let request = rp.take_request().unwrap();
+        println!(
+            "responder could cancel: {:?}",
+            &rq.cancel().unwrap().is_none()
+        );
+        assert_eq!(request, Request::This(1, 2));
+        assert!(rp.is_canceled());
+        assert!(rp.respond(response).is_err());
+        assert!(rp.acknowledge_cancel().is_ok());
+        assert_eq!(State::Idle, rq.state());
+        // building into request buffer
+        rq.with_request_mut(|r| *r = Request::This(1, 2)).unwrap();
+        assert!(rq.send_request().is_ok());
+        let request = rp.take_request().unwrap();
+        assert_eq!(request, Request::This(1, 2));
+        println!("rp got request: {:?}", request);
+        // building into response buffer
+        rp.with_response_mut(|r| *r = Response::Here(3, 2, 1))
+            .unwrap();
+        assert!(rp.send_response().is_ok());
+        let response = rq.take_response().unwrap();
+        assert_eq!(response, Response::Here(3, 2, 1));
+    }
+}
