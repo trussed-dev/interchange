@@ -896,16 +896,59 @@ impl<Rq, Rp, const N: usize> Interchange<Rq, Rp, N> {
 
     /// Claim one of the channels of the interchange. Returns None if called more than `N` times.
     pub fn claim(&self) -> Option<(Requester<Rq, Rp>, Responder<Rq, Rp>)> {
-        let index = self.last_claimed.fetch_add(1, Ordering::Relaxed);
+        self.as_interchange_ref().claim()
+    }
 
-        for i in (index % N)..N {
+    /// Returns a reference to the interchange with the `N` const-generic removed.
+    /// This can avoid the requirement to have `const N: usize` everywhere
+    /// ```
+    /// # #![cfg(not(loom))]
+    /// # use interchange::{State, Interchange, InterchangeRef};
+    /// # #[derive(Clone, Debug, PartialEq)]
+    /// # pub enum Request {
+    /// #     This(u8, u32),
+    /// #     That(i64),
+    /// # }
+    /// # #[derive(Clone, Debug, PartialEq)]
+    /// # pub enum Response {
+    /// #     Here(u8, u8, u8),
+    /// #     There(i16),
+    /// # }
+    /// static INTERCHANGE_INNER: Interchange<Request, Response, 1> = Interchange::new();
+    ///
+    /// // The size of the interchange is absent from the type
+    /// static INTERCHANGE: InterchangeRef<'static, Request, Response> = INTERCHANGE_INNER.as_interchange_ref();
+    ///
+    /// let (mut rq, mut rp) = INTERCHANGE.claim().unwrap();
+    /// ```
+    pub const fn as_interchange_ref(&self) -> InterchangeRef<'_, Rq, Rp> {
+        InterchangeRef {
+            channels: &self.channels,
+            last_claimed: &self.last_claimed,
+        }
+    }
+}
+
+/// Interchange witout the `const N: usize` generic parameter
+/// Obtained using [`Interchange::as_interchange_ref`](Interchange::as_interchange_ref)
+pub struct InterchangeRef<'alloc, Rq, Rp> {
+    channels: &'alloc [Channel<Rq, Rp>],
+    last_claimed: &'alloc AtomicUsize,
+}
+impl<'alloc, Rq, Rp> InterchangeRef<'alloc, Rq, Rp> {
+    /// Claim one of the channels of the interchange. Returns None if called more than `N` times.
+    pub fn claim(&self) -> Option<(Requester<'alloc, Rq, Rp>, Responder<'alloc, Rq, Rp>)> {
+        let index = self.last_claimed.fetch_add(1, Ordering::Relaxed);
+        let n = self.channels.len();
+
+        for i in (index % n)..n {
             let tmp = self.channels[i].split();
             if tmp.is_some() {
                 return tmp;
             }
         }
 
-        for i in 0..(index % N) {
+        for i in 0..(index % n) {
             let tmp = self.channels[i].split();
             if tmp.is_some() {
                 return tmp;
