@@ -5,5 +5,5 @@ test:
 	RUSTFLAGS='--cfg loom' cargo t loom
 
 clippy:
-	cargo clippy --all-targets
-	RUSTFLAGS='--cfg loom' cargo clippy --all-targets
+	cargo clippy --all-targets --all-features
+	RUSTFLAGS='--cfg loom' cargo clippy --all-targets --all-features
