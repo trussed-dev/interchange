@@ -1,3 +1,3 @@
 (function() {var implementors = {
-"interchange":[["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/1.66.0/core/marker/trait.StructuralPartialEq.html\" title=\"trait core::marker::StructuralPartialEq\">StructuralPartialEq</a> for <a class=\"enum\" href=\"interchange/enum.State.html\" title=\"enum interchange::State\">State</a>"]]
+"interchange":[["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/1.67.0/core/marker/trait.StructuralPartialEq.html\" title=\"trait core::marker::StructuralPartialEq\">StructuralPartialEq</a> for <a class=\"enum\" href=\"interchange/enum.State.html\" title=\"enum interchange::State\">State</a>"]]
 };if (window.register_implementors) {window.register_implementors(implementors);} else {window.pending_implementors = implementors;}})()
