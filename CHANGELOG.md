@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed 
+
+- Restrict `Send` and `Sync` trait implementations to disallow non thread-safe Request and Replies ([#11][])
+
+[#11]: https://github.com/trussed-dev/interchange/pull/11
+
 ## [0.3.0][] - 2023-02-01
 
 - Remove usage of macros and replace it with `const` and generics ([#5][])
