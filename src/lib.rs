@@ -253,11 +253,6 @@ impl<Rq, Rp> Message<Rq, Rp> {
 }
 
 /// Channel used for Request/Response mechanism.
-///
-/// The Channel doesn't implement any mechanism to prevent it from beind [`split()`](Channel::split) twice.
-/// It is generally recommended to use [`Interchange`](Interchange) instead, which includes a
-/// safe API to "Claim" many channels
-///
 /// ```
 /// # #![cfg(not(loom))]
 /// # use interchange::{State, Channel};
