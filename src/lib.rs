@@ -964,6 +964,56 @@ impl<Rq, Rp, const N: usize> Default for Interchange<Rq, Rp, N> {
     }
 }
 
+/// ```compile_fail
+/// use std::rc::Rc;
+/// use interchange::*;
+/// #[allow(unconditional_recursion, unused)]
+/// fn assert_send<T: Send>() {
+///     assert_send::<Channel<Rc<String>, u32>>();
+/// }
+/// ```
+/// ```compile_fail
+/// use std::rc::Rc;
+/// use interchange::*;
+/// #[allow(unconditional_recursion, unused)]
+/// fn assert_send<T: Send>() {
+///     assert_send::<Requester<Rc<String>, u32>>();
+/// }
+/// ```
+/// ```compile_fail
+/// use std::rc::Rc;
+/// use interchange::*;
+/// #[allow(unconditional_recursion, unused)]
+/// fn assert_send<T: Send>() {
+///     assert_send::<Responder<Rc<String>, u32>>();
+/// }
+/// ```
+/// ```compile_fail
+/// use std::rc::Rc;
+/// use interchange::*;
+/// #[allow(unconditional_recursion, unused)]
+/// fn assert_sync<T: Sync>() {
+///     assert_sync::<Channel<Rc<String>, u32>>();
+/// }
+/// ```
+/// ```compile_fail
+/// use std::rc::Rc;
+/// use interchange::*;
+/// #[allow(unconditional_recursion, unused)]
+/// fn assert_sync<T: Sync>() {
+///     assert_sync::<Requester<Rc<String>, u32>>();
+/// }
+/// ```
+/// ```compile_fail
+/// use std::rc::Rc;
+/// use interchange::*;
+/// #[allow(unconditional_recursion, unused)]
+/// fn assert_sync<T: Sync>() {
+///     assert_sync::<Responder<Rc<String>, u32>>();
+/// }
+/// ```
+const _ASSERT_COMPILE_FAILS: () = {};
+
 #[cfg(all(not(loom), test))]
 mod tests {
     use super::*;
@@ -1081,5 +1131,26 @@ mod tests {
         assert!(rp.send_response().is_ok());
         let response = rq.take_response().unwrap();
         assert_eq!(response, Response::Here(3, 2, 1));
+    }
+
+    #[allow(unconditional_recursion, unused)]
+    fn assert_send<T: Send>() {
+        assert_send::<Channel<String, u32>>();
+        assert_send::<Responder<'static, String, u32>>();
+        assert_send::<Requester<'static, String, u32>>();
+        assert_send::<Channel<&'static mut String, u32>>();
+        assert_send::<Responder<'static, &'static mut String, u32>>();
+        assert_send::<Requester<'static, &'static mut String, u32>>();
+    }
+    #[allow(unconditional_recursion, unused)]
+    fn assert_sync<T: Sync>() {
+        assert_sync::<Channel<String, u32>>();
+        assert_sync::<Channel<String, u32>>();
+        assert_sync::<Responder<'static, String, u32>>();
+        assert_sync::<Requester<'static, String, u32>>();
+
+        assert_sync::<Channel<&'static mut String, u32>>();
+        assert_sync::<Responder<'static, &'static mut String, u32>>();
+        assert_sync::<Requester<'static, &'static mut String, u32>>();
     }
 }

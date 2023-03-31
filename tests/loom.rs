@@ -1,43 +1,52 @@
-#![cfg(loom)]
-
+#[cfg(loom)]
 use loom::thread;
+#[cfg(not(loom))]
+use std::thread;
+
 use std::mem::drop;
 
 use interchange::{Channel, Requester, Responder};
-#[allow(deprecated)]
-use std::sync::atomic::{
-    AtomicBool,
-    Ordering::{Acquire, Release},
-    ATOMIC_BOOL_INIT,
+#[cfg(loom)]
+use std::sync::atomic::Ordering::Acquire;
+use std::sync::atomic::{AtomicBool, Ordering::Release};
+
+static BRANCHES_USED: [AtomicBool; 6] = {
+    #[allow(clippy::declare_interior_mutable_const)]
+    const ATOMIC_BOOL_INIT: AtomicBool = AtomicBool::new(false);
+    [ATOMIC_BOOL_INIT; 6]
 };
 
-#[allow(deprecated)]
-static BRANCHES_USED: [AtomicBool; 6] = [ATOMIC_BOOL_INIT; 6];
-
+#[cfg(loom)]
 #[test]
 fn loom_interchange() {
-    loom::model(|| {
-        // thread closures must be 'static
-        let channel = Box::leak(Box::new(Channel::new()));
-        let dropper = unsafe { Box::from_raw(channel as _) };
-
-        let (rq, rp) = channel.split().unwrap();
-        let handle1 = thread::spawn(move || requester_thread(rq));
-        let handle2 = thread::spawn(move || responder_thread(rp));
-        let res1 = handle1.join();
-        let res2 = handle2.join();
-
-        // Avoid memory leak
-        drop(dropper);
-
-        res1.unwrap();
-        res2.unwrap();
-    });
+    loom::model(test_function);
 
     // Verify that the model explored the expected branches
     for b in &BRANCHES_USED {
         assert!(b.load(Acquire));
     }
+}
+
+// This is tested even with the standard library to ensure that the Send/Sync traits are implemented as necessary
+// Loom's thread::spawn doesn't require the function to be `Send`
+#[cfg_attr(not(loom), test)]
+fn test_function() {
+    // thread closures must be 'static
+    let channel = Box::leak(Box::new(Channel::new()));
+    let dropper = unsafe { Box::from_raw(channel as _) };
+
+    let (rq, rp) = channel.split().unwrap();
+
+    let handle1 = thread::spawn(move || requester_thread(rq));
+    let handle2 = thread::spawn(move || responder_thread(rp));
+    let res1 = handle1.join();
+    let res2 = handle2.join();
+
+    // Avoid memory leak
+    drop(dropper);
+
+    res1.unwrap();
+    res2.unwrap();
 }
 
 fn requester_thread(mut requester: Requester<'static, u64, u64>) -> Option<()> {
