@@ -847,10 +847,14 @@ where
     }
 }
 
-unsafe impl<'i, Rq, Rp> Send for Responder<'i, Rq, Rp> {}
-unsafe impl<'i, Rq, Rp> Send for Requester<'i, Rq, Rp> {}
-unsafe impl<Rq, Rp> Send for Channel<Rq, Rp> {}
-unsafe impl<Rq, Rp> Sync for Channel<Rq, Rp> {}
+// Safety: The channel can be split, which then allows getting sending the Rq and Rp types across threads
+// TODO: is the Sync bound really necessary?
+unsafe impl<Rq, Rp> Sync for Channel<Rq, Rp>
+where
+    Rq: Send + Sync,
+    Rp: Send + Sync,
+{
+}
 
 /// Set of `N` channels
 ///
