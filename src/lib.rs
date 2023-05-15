@@ -148,10 +148,10 @@ pub enum State {
     /// The responder sent a response.
     Responded = 4,
 
-    #[doc(hidden)]
-    CancelingRequested = 10,
-    #[doc(hidden)]
-    CancelingBuildingResponse = 11,
+    // #[doc(hidden)]
+    // CancelingRequested = 10,
+    // #[doc(hidden)]
+    // CancelingBuildingResponse = 11,
     /// The requester canceled the request. Responder needs to acknowledge to return to `Idle`
     /// state.
     Canceled = 12,
@@ -172,8 +172,8 @@ impl From<u8> for State {
             3 => State::BuildingResponse,
             4 => State::Responded,
 
-            10 => State::CancelingRequested,
-            11 => State::CancelingBuildingResponse,
+            // 10 => State::CancelingRequested,
+            // 11 => State::CancelingBuildingResponse,
             12 => State::Canceled,
 
             _ => State::Idle,
@@ -507,29 +507,17 @@ impl<'i, Rq, Rp> Requester<'i, Rq, Rp> {
     ///
     /// In other cases (`Idle` or `Reponsed`) there is nothing to cancel and we fail.
     pub fn cancel(&mut self) -> Result<Option<Rq>, Error> {
-        // we canceled before the responder was even aware of the request.
         if self
             .channel
-            .transition(State::Requested, State::CancelingRequested)
+            .transition(State::BuildingResponse, State::Canceled)
         {
-            self.channel
-                .state
-                .store(State::Idle as u8, Ordering::Release);
-            return Ok(Some(unsafe { self.with_data_mut(|i| i.take_rq()) }));
+            // we canceled after the responder took the request, but before they answered.
+            return Ok(None);
         }
 
-        // we canceled after the responder took the request, but before they answered.
-        if self
-            .channel
-            .transition(State::BuildingResponse, State::CancelingRequested)
-        {
-            // this may not yet be None in case the responder switched state to
-            // BuildingResponse but did not take out the request yet.
-            // assert!(self.data.is_none());
-            self.channel
-                .state
-                .store(State::Canceled as u8, Ordering::Release);
-            return Ok(None);
+        if self.channel.transition(State::Requested, State::Idle) {
+            // we canceled before the responder was even aware of the request.
+            return Ok(Some(unsafe { self.with_data_mut(|i| i.take_rq()) }));
         }
 
         Err(Error)
