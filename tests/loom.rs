@@ -10,10 +10,10 @@ use interchange::{Channel, Requester, Responder};
 use std::sync::atomic::Ordering::Acquire;
 use std::sync::atomic::{AtomicBool, Ordering::Release};
 
-static BRANCHES_USED: [AtomicBool; 6] = {
+static BRANCHES_USED: [AtomicBool; 8] = {
     #[allow(clippy::declare_interior_mutable_const)]
     const ATOMIC_BOOL_INIT: AtomicBool = AtomicBool::new(false);
-    [ATOMIC_BOOL_INIT; 6]
+    [ATOMIC_BOOL_INIT; 8]
 };
 
 #[cfg(loom)]
@@ -62,7 +62,13 @@ fn requester_thread(mut requester: Requester<'static, u64, u64>) -> Option<()> {
         Ok(_) => panic!("Invalid state"),
         Err(_) => {
             BRANCHES_USED[1].store(true, Release);
-            assert_eq!(requester.take_response().unwrap(), 79);
+            match requester.take_response() {
+                Some(i) => {
+                    assert_eq!(i, 79);
+                    BRANCHES_USED[6].store(true, Release);
+                }
+                None => BRANCHES_USED[7].store(true, Release),
+            }
         }
     }
     BRANCHES_USED[4].store(true, Release);
