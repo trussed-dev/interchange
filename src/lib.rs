@@ -767,10 +767,14 @@ impl<'i, Rq, Rp> Responder<'i, Rq, Rp> {
             unsafe {
                 self.with_data_mut(|i| *i = Message::from_rp(response));
             }
-            self.channel
-                .state
-                .store(State::Responded as u8, Ordering::Release);
-            Ok(())
+            if self
+                .channel
+                .transition(State::BuildingResponse, State::Responded)
+            {
+                Ok(())
+            } else {
+                Err(Error)
+            }
         } else {
             Err(Error)
         }
