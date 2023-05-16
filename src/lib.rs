@@ -404,7 +404,7 @@ impl<Rq, Rp> Channel<Rq, Rp> {
 
     fn transition(&self, from: State, to: State) -> bool {
         self.state
-            .compare_exchange(from as u8, to as u8, Ordering::SeqCst, Ordering::SeqCst)
+            .compare_exchange(from as u8, to as u8, Ordering::AcqRel, Ordering::Relaxed)
             .is_ok()
     }
 }
