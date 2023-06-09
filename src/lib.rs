@@ -148,12 +148,6 @@ pub enum State {
     /// The responder sent a response.
     Responded = 4,
 
-    // #[doc(hidden)]
-    // CancelingRequested = 10,
-    // #[doc(hidden)]
-    // CancelingBuildingResponse = 11,
-    /// The requester canceled the request. Responder needs to acknowledge to return to `Idle`
-    /// state.
     Canceled = 12,
 }
 
@@ -171,11 +165,7 @@ impl From<u8> for State {
             2 => State::Requested,
             3 => State::BuildingResponse,
             4 => State::Responded,
-
-            // 10 => State::CancelingRequested,
-            // 11 => State::CancelingBuildingResponse,
             12 => State::Canceled,
-
             _ => State::Idle,
         }
     }
