@@ -1133,7 +1133,7 @@ mod tests {
         assert_eq!(response, Response::Here(3, 2, 1));
     }
 
-    #[allow(unconditional_recursion, unused)]
+    #[allow(unconditional_recursion, clippy::extra_unused_type_parameters, unused)]
     fn assert_send<T: Send>() {
         assert_send::<Channel<String, u32>>();
         assert_send::<Responder<'static, String, u32>>();
@@ -1142,7 +1142,7 @@ mod tests {
         assert_send::<Responder<'static, &'static mut String, u32>>();
         assert_send::<Requester<'static, &'static mut String, u32>>();
     }
-    #[allow(unconditional_recursion, unused)]
+    #[allow(unconditional_recursion, clippy::extra_unused_type_parameters, unused)]
     fn assert_sync<T: Sync>() {
         assert_sync::<Channel<String, u32>>();
         assert_sync::<Channel<String, u32>>();
