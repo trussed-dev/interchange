@@ -148,12 +148,6 @@ pub enum State {
     /// The responder sent a response.
     Responded = 4,
 
-    #[doc(hidden)]
-    CancelingRequested = 10,
-    #[doc(hidden)]
-    CancelingBuildingResponse = 11,
-    /// The requester canceled the request. Responder needs to acknowledge to return to `Idle`
-    /// state.
     Canceled = 12,
 }
 
@@ -171,11 +165,7 @@ impl From<u8> for State {
             2 => State::Requested,
             3 => State::BuildingResponse,
             4 => State::Responded,
-
-            10 => State::CancelingRequested,
-            11 => State::CancelingBuildingResponse,
             12 => State::Canceled,
-
             _ => State::Idle,
         }
     }
@@ -401,6 +391,12 @@ impl<Rq, Rp> Channel<Rq, Rp> {
     pub fn split(&self) -> Option<(Requester<'_, Rq, Rp>, Responder<'_, Rq, Rp>)> {
         Some((self.requester()?, self.responder()?))
     }
+
+    fn transition(&self, from: State, to: State) -> bool {
+        self.state
+            .compare_exchange(from as u8, to as u8, Ordering::AcqRel, Ordering::Relaxed)
+            .is_ok()
+    }
 }
 
 impl<Rq, Rp> Default for Channel<Rq, Rp> {
@@ -426,12 +422,8 @@ impl<'i, Rq, Rp> Drop for Requester<'i, Rq, Rp> {
 }
 
 impl<'i, Rq, Rp> Requester<'i, Rq, Rp> {
-    #[inline]
-    fn transition(&self, from: State, to: State) -> bool {
+    pub fn channel(&self) -> &'i Channel<Rq, Rp> {
         self.channel
-            .state
-            .compare_exchange(from as u8, to as u8, Ordering::SeqCst, Ordering::SeqCst)
-            .is_ok()
     }
 
     #[cfg(not(loom))]
@@ -505,23 +497,17 @@ impl<'i, Rq, Rp> Requester<'i, Rq, Rp> {
     ///
     /// In other cases (`Idle` or `Reponsed`) there is nothing to cancel and we fail.
     pub fn cancel(&mut self) -> Result<Option<Rq>, Error> {
-        // we canceled before the responder was even aware of the request.
-        if self.transition(State::Requested, State::CancelingRequested) {
-            self.channel
-                .state
-                .store(State::Idle as u8, Ordering::Release);
-            return Ok(Some(unsafe { self.with_data_mut(|i| i.take_rq()) }));
+        if self
+            .channel
+            .transition(State::BuildingResponse, State::Canceled)
+        {
+            // we canceled after the responder took the request, but before they answered.
+            return Ok(None);
         }
 
-        // we canceled after the responder took the request, but before they answered.
-        if self.transition(State::BuildingResponse, State::CancelingRequested) {
-            // this may not yet be None in case the responder switched state to
-            // BuildingResponse but did not take out the request yet.
-            // assert!(self.data.is_none());
-            self.channel
-                .state
-                .store(State::Canceled as u8, Ordering::Release);
-            return Ok(None);
+        if self.channel.transition(State::Requested, State::Idle) {
+            // we canceled before the responder was even aware of the request.
+            return Ok(Some(unsafe { self.with_data_mut(|i| i.take_rq()) }));
         }
 
         Err(Error)
@@ -534,7 +520,7 @@ impl<'i, Rq, Rp> Requester<'i, Rq, Rp> {
     // this is likely correct
     #[cfg(not(loom))]
     pub fn response(&self) -> Result<&Rp, Error> {
-        if self.transition(State::Responded, State::Responded) {
+        if self.channel.transition(State::Responded, State::Responded) {
             Ok(unsafe { self.data().rp_ref() })
         } else {
             Err(Error)
@@ -545,7 +531,7 @@ impl<'i, Rq, Rp> Requester<'i, Rq, Rp> {
     ///
     /// This may be called multiple times.
     pub fn with_response<R>(&self, f: impl FnOnce(&Rp) -> R) -> Result<R, Error> {
-        if self.transition(State::Responded, State::Responded) {
+        if self.channel.transition(State::Responded, State::Responded) {
             Ok(unsafe { self.with_data(|i| f(i.rp_ref())) })
         } else {
             Err(Error)
@@ -560,7 +546,7 @@ impl<'i, Rq, Rp> Requester<'i, Rq, Rp> {
     // It is a logic error to call this method if we're Idle or Canceled, but
     // it seems unnecessary to model this.
     pub fn take_response(&mut self) -> Option<Rp> {
-        if self.transition(State::Responded, State::Idle) {
+        if self.channel.transition(State::Responded, State::Idle) {
             Some(unsafe { self.with_data_mut(|i| i.take_rp()) })
         } else {
             None
@@ -576,8 +562,10 @@ where
     ///
     /// This is usefull to build large structures in-place
     pub fn with_request_mut<R>(&mut self, f: impl FnOnce(&mut Rq) -> R) -> Result<R, Error> {
-        if self.transition(State::Idle, State::BuildingRequest)
-            || self.transition(State::BuildingRequest, State::BuildingRequest)
+        if self.channel.transition(State::Idle, State::BuildingRequest)
+            || self
+                .channel
+                .transition(State::BuildingRequest, State::BuildingRequest)
         {
             let res = unsafe {
                 self.with_data_mut(|i| {
@@ -600,8 +588,10 @@ where
     // this is likely correct
     #[cfg(not(loom))]
     pub fn request_mut(&mut self) -> Result<&mut Rq, Error> {
-        if self.transition(State::Idle, State::BuildingRequest)
-            || self.transition(State::BuildingRequest, State::BuildingRequest)
+        if self.channel.transition(State::Idle, State::BuildingRequest)
+            || self
+                .channel
+                .transition(State::BuildingRequest, State::BuildingRequest)
         {
             unsafe {
                 self.with_data_mut(|i| {
@@ -620,7 +610,9 @@ where
     /// `with_request_mut`.
     pub fn send_request(&mut self) -> Result<(), Error> {
         if State::BuildingRequest == self.channel.state.load(Ordering::Acquire)
-            && self.transition(State::BuildingRequest, State::Requested)
+            && self
+                .channel
+                .transition(State::BuildingRequest, State::Requested)
         {
             Ok(())
         } else {
@@ -647,12 +639,8 @@ impl<'i, Rq, Rp> Drop for Responder<'i, Rq, Rp> {
 }
 
 impl<'i, Rq, Rp> Responder<'i, Rq, Rp> {
-    #[inline]
-    fn transition(&self, from: State, to: State) -> bool {
+    pub fn channel(&self) -> &'i Channel<Rq, Rp> {
         self.channel
-            .state
-            .compare_exchange(from as u8, to as u8, Ordering::SeqCst, Ordering::SeqCst)
-            .is_ok()
     }
 
     #[cfg(not(loom))]
@@ -701,7 +689,10 @@ impl<'i, Rq, Rp> Responder<'i, Rq, Rp> {
     /// This may be called only once as it move the state to BuildingResponse.
     /// If you need copies, use `take_request`
     pub fn with_request<R>(&self, f: impl FnOnce(&Rq) -> R) -> Result<R, Error> {
-        if self.transition(State::Requested, State::BuildingResponse) {
+        if self
+            .channel
+            .transition(State::Requested, State::BuildingResponse)
+        {
             Ok(unsafe { self.with_data(|i| f(i.rq_ref())) })
         } else {
             Err(Error)
@@ -715,7 +706,10 @@ impl<'i, Rq, Rp> Responder<'i, Rq, Rp> {
     // this is likely correct
     #[cfg(not(loom))]
     pub fn request(&self) -> Result<&Rq, Error> {
-        if self.transition(State::Requested, State::BuildingResponse) {
+        if self
+            .channel
+            .transition(State::Requested, State::BuildingResponse)
+        {
             Ok(unsafe { self.data().rq_ref() })
         } else {
             Err(Error)
@@ -727,7 +721,10 @@ impl<'i, Rq, Rp> Responder<'i, Rq, Rp> {
     /// This may be called only once as it move the state to BuildingResponse.
     /// If you need copies, clone the request.
     pub fn take_request(&mut self) -> Option<Rq> {
-        if self.transition(State::Requested, State::BuildingResponse) {
+        if self
+            .channel
+            .transition(State::Requested, State::BuildingResponse)
+        {
             Some(unsafe { self.with_data_mut(|i| i.take_rq()) })
         } else {
             None
@@ -743,17 +740,7 @@ impl<'i, Rq, Rp> Responder<'i, Rq, Rp> {
     //
     // It is a logic error to call this method if there is no pending cancellation.
     pub fn acknowledge_cancel(&self) -> Result<(), Error> {
-        if self
-            .channel
-            .state
-            .compare_exchange(
-                State::Canceled as u8,
-                State::Idle as u8,
-                Ordering::SeqCst,
-                Ordering::SeqCst,
-            )
-            .is_ok()
-        {
+        if self.channel.transition(State::Canceled, State::Idle) {
             Ok(())
         } else {
             Err(Error)
@@ -770,10 +757,14 @@ impl<'i, Rq, Rp> Responder<'i, Rq, Rp> {
             unsafe {
                 self.with_data_mut(|i| *i = Message::from_rp(response));
             }
-            self.channel
-                .state
-                .store(State::Responded as u8, Ordering::Release);
-            Ok(())
+            if self
+                .channel
+                .transition(State::BuildingResponse, State::Responded)
+            {
+                Ok(())
+            } else {
+                Err(Error)
+            }
         } else {
             Err(Error)
         }
@@ -788,8 +779,12 @@ where
     ///
     /// This is usefull to build large structures in-place
     pub fn with_response_mut<R>(&mut self, f: impl FnOnce(&mut Rp) -> R) -> Result<R, Error> {
-        if self.transition(State::Requested, State::BuildingResponse)
-            || self.transition(State::BuildingResponse, State::BuildingResponse)
+        if self
+            .channel
+            .transition(State::Requested, State::BuildingResponse)
+            || self
+                .channel
+                .transition(State::BuildingResponse, State::BuildingResponse)
         {
             let res = unsafe {
                 self.with_data_mut(|i| {
@@ -812,8 +807,12 @@ where
     // this is likely correct
     #[cfg(not(loom))]
     pub fn response_mut(&mut self) -> Result<&mut Rp, Error> {
-        if self.transition(State::Requested, State::BuildingResponse)
-            || self.transition(State::BuildingResponse, State::BuildingResponse)
+        if self
+            .channel
+            .transition(State::Requested, State::BuildingResponse)
+            || self
+                .channel
+                .transition(State::BuildingResponse, State::BuildingResponse)
         {
             unsafe {
                 self.with_data_mut(|i| {
@@ -832,7 +831,9 @@ where
     /// `with_response_mut`.
     pub fn send_response(&mut self) -> Result<(), Error> {
         if State::BuildingResponse == self.channel.state.load(Ordering::Acquire)
-            && self.transition(State::BuildingResponse, State::Responded)
+            && self
+                .channel
+                .transition(State::BuildingResponse, State::Responded)
         {
             Ok(())
         } else {
