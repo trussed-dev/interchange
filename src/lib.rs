@@ -331,9 +331,6 @@ pub struct Channel<Rq, Rp> {
 }
 
 impl<Rq, Rp> Channel<Rq, Rp> {
-    #[cfg(not(loom))]
-    const CHANNEL_INIT: Channel<Rq, Rp> = Self::new();
-
     // Loom's atomics are not const :/
     #[cfg(not(loom))]
     pub const fn new() -> Self {
@@ -889,7 +886,16 @@ impl<Rq, Rp, const N: usize> Interchange<Rq, Rp, N> {
     #[cfg(not(loom))]
     pub const fn new() -> Self {
         Self {
-            channels: [Channel::<Rq, Rp>::CHANNEL_INIT; N],
+            channels: [const { Channel::new() }; N],
+            last_claimed: AtomicUsize::new(0),
+        }
+    }
+
+    /// Create a new Interchange
+    #[cfg(loom)]
+    pub fn new() -> Self {
+        Self {
+            channels: core::array::from_fn(|_| Channel::new()),
             last_claimed: AtomicUsize::new(0),
         }
     }
@@ -958,7 +964,6 @@ impl<'alloc, Rq, Rp> InterchangeRef<'alloc, Rq, Rp> {
     }
 }
 
-#[cfg(not(loom))]
 impl<Rq, Rp, const N: usize> Default for Interchange<Rq, Rp, N> {
     fn default() -> Self {
         Self::new()
