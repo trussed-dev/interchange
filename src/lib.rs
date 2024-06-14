@@ -20,7 +20,7 @@
 //!
 //! ### Approach
 //! It is assumed that all requests fit in a single `Request` enum, and that
-//! all responses fit in single `Response` enum. The [`Channel`](Channel) and [`Interchange`](Interchange) structs allocate a single buffer in which either Request or Response fit and handle synchronization
+//! all responses fit in single `Response` enum. The [`Channel`]() and [`Interchange`]() structs allocate a single buffer in which either Request or Response fit and handle synchronization
 //! Both structures have `const` constructors, allowing them to be statically allocated.
 //!
 //! An alternative approach would be to use two heapless Queues of length one
@@ -357,7 +357,7 @@ impl<Rq, Rp> Channel<Rq, Rp> {
 
     /// Obtain the requester end of the channel if it hasn't been taken yet.
     ///
-    /// Can be called again if the previously obtained [`Requester`](Requester) has been dropped
+    /// Can be called again if the previously obtained [`Requester`]() has been dropped
     pub fn requester(&self) -> Option<Requester<'_, Rq, Rp>> {
         if self
             .requester_claimed
@@ -372,7 +372,7 @@ impl<Rq, Rp> Channel<Rq, Rp> {
 
     /// Obtain the responder end of the channel if it hasn't been taken yet.
     ///
-    /// Can be called again if the previously obtained [`Responder`](Responder) has been dropped
+    /// Can be called again if the previously obtained [`Responder`]() has been dropped
     pub fn responder(&self) -> Option<Responder<'_, Rq, Rp>> {
         if self
             .responder_claimed
@@ -387,7 +387,7 @@ impl<Rq, Rp> Channel<Rq, Rp> {
 
     /// Obtain both the requester and responder ends of the channel.
     ///
-    /// Can be called again if the previously obtained [`Responder`](Responder) and [`Requester`](Requester) have been dropped
+    /// Can be called again if the previously obtained [`Responder`]() and [`Requester`]() have been dropped
     pub fn split(&self) -> Option<(Requester<'_, Rq, Rp>, Responder<'_, Rq, Rp>)> {
         Some((self.requester()?, self.responder()?))
     }
@@ -407,7 +407,7 @@ impl<Rq, Rp> Default for Channel<Rq, Rp> {
 
 /// Requester end of a channel
 ///
-/// For a `static` [`Channel`](Channel) or [`Interchange`](Interchange),
+/// For a `static` [`Channel`]() or [`Interchange`](),
 /// the requester uses a `'static` lifetime parameter
 pub struct Requester<'i, Rq, Rp> {
     channel: &'i Channel<Rq, Rp>,
@@ -624,7 +624,7 @@ where
 
 /// Responder end of a channel
 ///
-/// For a `static` [`Channel`](Channel) or [`Interchange`](Interchange),
+/// For a `static` [`Channel`]() or [`Interchange`](),
 /// the responder uses a `'static` lifetime parameter
 pub struct Responder<'i, Rq, Rp> {
     channel: &'i Channel<Rq, Rp>,
