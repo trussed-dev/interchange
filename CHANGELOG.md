@@ -6,7 +6,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed 
+### Added
+
+- Add `Clone` and `Copy` implementations for `InterchangeRef`.
 
 ## [0.3.1][] - 2024-06-20
 

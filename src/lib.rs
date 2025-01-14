@@ -941,6 +941,7 @@ pub struct InterchangeRef<'alloc, Rq, Rp> {
     channels: &'alloc [Channel<Rq, Rp>],
     last_claimed: &'alloc AtomicUsize,
 }
+
 impl<'alloc, Rq, Rp> InterchangeRef<'alloc, Rq, Rp> {
     /// Claim one of the channels of the interchange. Returns None if called more than `N` times.
     pub fn claim(&self) -> Option<(Requester<'alloc, Rq, Rp>, Responder<'alloc, Rq, Rp>)> {
@@ -963,6 +964,14 @@ impl<'alloc, Rq, Rp> InterchangeRef<'alloc, Rq, Rp> {
         None
     }
 }
+
+impl<Rq, Rp> Clone for InterchangeRef<'_, Rq, Rp> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<Rq, Rp> Copy for InterchangeRef<'_, Rq, Rp> {}
 
 impl<Rq, Rp, const N: usize> Default for Interchange<Rq, Rp, N> {
     fn default() -> Self {
