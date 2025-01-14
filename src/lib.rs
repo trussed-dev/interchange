@@ -410,7 +410,7 @@ pub struct Requester<'i, Rq, Rp> {
     channel: &'i Channel<Rq, Rp>,
 }
 
-impl<'i, Rq, Rp> Drop for Requester<'i, Rq, Rp> {
+impl<Rq, Rp> Drop for Requester<'_, Rq, Rp> {
     fn drop(&mut self) {
         self.channel
             .requester_claimed
@@ -551,7 +551,7 @@ impl<'i, Rq, Rp> Requester<'i, Rq, Rp> {
     }
 }
 
-impl<'i, Rq, Rp> Requester<'i, Rq, Rp>
+impl<Rq, Rp> Requester<'_, Rq, Rp>
 where
     Rq: Default,
 {
@@ -627,7 +627,7 @@ pub struct Responder<'i, Rq, Rp> {
     channel: &'i Channel<Rq, Rp>,
 }
 
-impl<'i, Rq, Rp> Drop for Responder<'i, Rq, Rp> {
+impl<Rq, Rp> Drop for Responder<'_, Rq, Rp> {
     fn drop(&mut self) {
         self.channel
             .responder_claimed
@@ -768,7 +768,7 @@ impl<'i, Rq, Rp> Responder<'i, Rq, Rp> {
     }
 }
 
-impl<'i, Rq, Rp> Responder<'i, Rq, Rp>
+impl<Rq, Rp> Responder<'_, Rq, Rp>
 where
     Rp: Default,
 {
