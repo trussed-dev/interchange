@@ -901,7 +901,7 @@ impl<Rq, Rp, const N: usize> Interchange<Rq, Rp, N> {
     }
 
     /// Claim one of the channels of the interchange. Returns None if called more than `N` times.
-    pub fn claim(&self) -> Option<(Requester<Rq, Rp>, Responder<Rq, Rp>)> {
+    pub fn claim(&self) -> Option<(Requester<'_, Rq, Rp>, Responder<'_, Rq, Rp>)> {
         self.as_interchange_ref().claim()
     }
 
