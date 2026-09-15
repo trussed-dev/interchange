@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+-
+
+## [0.3.3][] - 2026-09-15
+
+### Added
+
 - Add callbacks to `Requester` and `Responder` by adding a `callback_mut` function.
 
 ## [0.3.2][] - 2024-01-14
@@ -41,7 +47,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Changes API to use references instead of moves.
   This improves stack usage.
 
-[Unreleased]: https://github.com/trussed-dev/interchange/compare/0.3.2...HEAD
+[Unreleased]: https://github.com/trussed-dev/interchange/compare/0.3.3...HEAD
+[0.3.2]: https://github.com/trussed-dev/interchange/compare/0.3.2...0.3.3
 [0.3.2]: https://github.com/trussed-dev/interchange/compare/0.3.1...0.3.2
 [0.3.1]: https://github.com/trussed-dev/interchange/compare/0.3.0...0.3.1
 [0.3.0]: https://github.com/trussed-dev/interchange/compare/0.2.2...0.3.0
