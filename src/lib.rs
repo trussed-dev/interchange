@@ -429,6 +429,11 @@ impl<Rq, Rp> Drop for Requester<'_, Rq, Rp> {
 }
 
 impl<'i, Rq, Rp> Requester<'i, Rq, Rp> {
+    /// Allows to set a callback that is called when a request has been sent and when a request
+    /// has been cancelled before it was taken by the responder.
+    ///
+    /// The callback is called by [`Requester::request`][], [`Requester::send_request`][] and
+    /// [`Requester::cancel`][].
     pub fn callback_mut(&mut self) -> &mut Callback {
         &mut self.callback
     }
@@ -481,10 +486,13 @@ impl<'i, Rq, Rp> Requester<'i, Rq, Rp> {
     /// Send a request to the responder.
     ///
     /// If efficiency is a concern, or requests need multiple steps to
-    /// construct, use `request_mut` and `send_request.
+    /// construct, use `request_mut` and `send_request`.
     ///
     /// If the RPC state is `Idle`, this always succeeds, else calling
     /// is a logic error and the request is returned.
+    ///
+    /// If the request has been sent succesfully, this functions calls the callback set with
+    /// [`Requester::callback_mut`][].
     pub fn request(&mut self, request: Rq) -> Result<(), Error> {
         if State::Idle == self.channel.state.load(Ordering::Acquire) {
             unsafe {
@@ -508,6 +516,9 @@ impl<'i, Rq, Rp> Requester<'i, Rq, Rp> {
     /// If the responder has taken the request (is processing), we succeed and return None.
     ///
     /// In other cases (`Idle` or `Reponsed`) there is nothing to cancel and we fail.
+    ///
+    /// If the responder has not taken the request yet, this functions calls the callback set
+    /// with [`Requester::callback_mut`][].
     pub fn cancel(&mut self) -> Result<Option<Rq>, Error> {
         if self
             .channel
@@ -621,6 +632,9 @@ where
 
     /// Send a request that was already placed in the channel using `request_mut` or
     /// `with_request_mut`.
+    ///
+    /// If the request has been sent succesfully, this functions calls the callback set with
+    /// [`Requester::callback_mut`][].
     pub fn send_request(&mut self) -> Result<(), Error> {
         if State::BuildingRequest == self.channel.state.load(Ordering::Acquire)
             && self
@@ -654,6 +668,9 @@ impl<Rq, Rp> Drop for Responder<'_, Rq, Rp> {
 }
 
 impl<'i, Rq, Rp> Responder<'i, Rq, Rp> {
+    /// Allows to set a callback that is called when a response has been sent.
+    ///
+    /// The callback is called by [`Responder::respond`][] and [`Responder::send_response`][].
     pub fn callback_mut(&mut self) -> &mut Callback {
         &mut self.callback
     }
@@ -771,6 +788,8 @@ impl<'i, Rq, Rp> Responder<'i, Rq, Rp> {
     /// If efficiency is a concern, or responses need multiple steps to
     /// construct, use `with_response_mut` or `response_mut` and `send_response`.
     ///
+    /// If the response has been sent succesfully, this functions calls the callback set with
+    /// [`Responder::callback_mut`][].
     pub fn respond(&mut self, response: Rp) -> Result<(), Error> {
         if State::BuildingResponse == self.channel.state.load(Ordering::Acquire) {
             unsafe {
@@ -849,6 +868,9 @@ where
 
     /// Send a response that was already placed in the channel using `response_mut` or
     /// `with_response_mut`.
+    ///
+    /// If the response has been sent succesfully, this functions calls the callback set with
+    /// [`Responder::callback_mut`][].
     pub fn send_response(&mut self) -> Result<(), Error> {
         if State::BuildingResponse == self.channel.state.load(Ordering::Acquire)
             && self

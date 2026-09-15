@@ -6,7 +6,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
--
+- Add callbacks to `Requester` and `Responder` by adding a `callback_mut` function.
 
 ## [0.3.2][] - 2024-01-14
 
