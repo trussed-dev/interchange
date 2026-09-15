@@ -75,7 +75,7 @@
 //! assert!(rq.request(request).is_ok());
 //! let request = rp.take_request().unwrap();
 //!
-//! println!("responder could cancel: {:?}", &rq.cancel().unwrap().is_none());
+//! println!("responder could cancel: {:?}", rq.cancel().unwrap().is_none());
 //! assert!(rp.is_canceled());
 //! assert!(rp.respond(response).is_err());
 //! assert!(rp.acknowledge_cancel().is_ok());
@@ -294,7 +294,7 @@ impl<Rq, Rp> Message<Rq, Rp> {
 /// assert!(rq.request(request).is_ok());
 /// let request = rp.take_request().unwrap();
 ///
-/// println!("responder could cancel: {:?}", &rq.cancel().unwrap().is_none());
+/// println!("responder could cancel: {:?}", rq.cancel().unwrap().is_none());
 /// assert!(rp.is_canceled());
 /// assert!(rp.respond(response).is_err());
 /// assert!(rp.acknowledge_cancel().is_ok());
@@ -1102,7 +1102,7 @@ mod tests {
         let request = rp.take_request().unwrap();
         println!(
             "responder could cancel: {:?}",
-            &rq.cancel().unwrap().is_none()
+            rq.cancel().unwrap().is_none()
         );
         assert_eq!(request, Request::This(1, 2));
         assert!(rp.is_canceled());
@@ -1151,7 +1151,7 @@ mod tests {
         let request = rp.take_request().unwrap();
         println!(
             "responder could cancel: {:?}",
-            &rq.cancel().unwrap().is_none()
+            rq.cancel().unwrap().is_none()
         );
         assert_eq!(request, Request::This(1, 2));
         assert!(rp.is_canceled());
