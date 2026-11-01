@@ -118,10 +118,13 @@ use loom::{
 };
 
 #[cfg(not(loom))]
-use core::{
-    cell::UnsafeCell,
-    sync::atomic::{AtomicBool, AtomicU8, AtomicUsize},
-};
+use core::cell::UnsafeCell;
+
+#[cfg(all(not(loom), not(feature = "portable-atomic")))]
+use core::sync::atomic::{AtomicBool, AtomicU8, AtomicUsize};
+
+#[cfg(all(not(loom), feature = "portable-atomic"))]
+use portable_atomic::{AtomicBool, AtomicU8, AtomicUsize};
 
 #[derive(Clone, Copy)]
 pub struct Error;
