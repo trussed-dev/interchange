@@ -2,6 +2,7 @@
 
 test:
 	cargo t
+	cargo t --features portable-atomic
 	RUSTFLAGS='--cfg loom' cargo t loom
 
 test-miri:

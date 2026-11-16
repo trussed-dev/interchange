@@ -117,6 +117,9 @@ use loom::{
     sync::atomic::{AtomicBool, AtomicU8, AtomicUsize},
 };
 
+#[cfg(all(loom, feature = "portable-atomic"))]
+use portable_atomic as _;
+
 #[cfg(not(loom))]
 use core::cell::UnsafeCell;
 
