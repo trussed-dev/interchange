@@ -1,3 +1,5 @@
+#![cfg(not(miri))]
+
 #[cfg(loom)]
 use loom::thread;
 #[cfg(not(loom))]
@@ -29,6 +31,8 @@ fn loom_interchange() {
 
 // This is tested even with the standard library to ensure that the Send/Sync traits are implemented as necessary
 // Loom's thread::spawn doesn't require the function to be `Send`
+//
+// miri doesn't like the box being dropped.
 #[cfg_attr(not(loom), test)]
 fn test_function() {
     // thread closures must be 'static
