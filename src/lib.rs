@@ -994,15 +994,10 @@ impl<'alloc, Rq, Rp> InterchangeRef<'alloc, Rq, Rp> {
         let index = self.last_claimed.fetch_add(1, Ordering::Relaxed);
         let n = self.channels.len();
 
-        for i in (index % n)..n {
-            let tmp = self.channels[i].split();
-            if tmp.is_some() {
-                return tmp;
-            }
-        }
+        let (channels_start, channels_end) = self.channels.split_at(index % n);
 
-        for i in 0..(index % n) {
-            let tmp = self.channels[i].split();
+        for channel in channels_end.iter().chain(channels_start) {
+            let tmp = channel.split();
             if tmp.is_some() {
                 return tmp;
             }
